@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
+import sys
+sys.path.append("..")
+from db import get_team_colors, get_season_points, get_seasons, get_season_data
 
 st.set_page_config(
     page_title="年度別ランキング | Mリーグダッシュボード",
@@ -15,22 +17,23 @@ st.sidebar.page_link("app.py", label="🏠 トップページ")
 st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
 st.sidebar.markdown("---")
+st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 
 st.title("📊 年度別ポイントランキング")
 
 # データ読み込み
-season_df = pd.read_csv("data/team_season_points.csv")
-teams_df = pd.read_csv("data/teams.csv")
+team_colors = get_team_colors()
+seasons = get_seasons()
 
-# チームカラーのマッピング
-team_colors = dict(zip(teams_df["team_name"], teams_df["color"]))
+if not seasons:
+    st.warning("シーズンデータがありません")
+    st.stop()
 
 # シーズン選択
-seasons = sorted(season_df["season"].unique(), reverse=True)
 selected_season = st.selectbox("シーズンを選択", seasons)
 
 # 選択シーズンのデータ
-filtered_df = season_df[season_df["season"] == selected_season].sort_values("points", ascending=True)
+filtered_df = get_season_data(selected_season).sort_values("points", ascending=True)
 
 st.markdown(f"## {selected_season}シーズン 結果")
 
@@ -41,13 +44,13 @@ with col1:
     fig = go.Figure()
     
     for _, row in filtered_df.iterrows():
-        color = team_colors.get(row["team"], "#888888")
+        color = team_colors.get(row["team_id"], "#888888")
         fig.add_trace(go.Bar(
-            y=[row["team"]],
+            y=[row["team_name"]],
             x=[row["points"]],
             orientation="h",
             marker_color=color,
-            name=row["team"],
+            name=row["team_name"],
             text=f"{row['points']:+.1f}",
             textposition="outside",
             showlegend=False
@@ -68,7 +71,7 @@ with col2:
     # 順位表
     st.markdown("### 順位表")
     
-    rank_df = filtered_df.sort_values("rank")[["rank", "team", "points"]].copy()
+    rank_df = filtered_df.sort_values("rank")[["rank", "team_name", "points"]].copy()
     rank_df.columns = ["順位", "チーム", "ポイント"]
     rank_df["ポイント"] = rank_df["ポイント"].apply(lambda x: f"{x:+.1f}")
     rank_df = rank_df.reset_index(drop=True)
@@ -80,18 +83,22 @@ st.markdown("---")
 # 全シーズン推移グラフ
 st.subheader("📈 全シーズン順位推移")
 
-# 順位推移のピボットテーブル
-rank_pivot = season_df.pivot(index="season", columns="team", values="rank")
+season_df = get_season_points()
+rank_pivot = season_df.pivot(index="season", columns="team_id", values="rank")
 
 fig2 = go.Figure()
 
-for team in rank_pivot.columns:
-    color = team_colors.get(team, "#888888")
+# team_idからチーム名へのマッピング（最新シーズンの名前を使用）
+latest_names = season_df[season_df["season"] == season_df["season"].max()].set_index("team_id")["team_name"].to_dict()
+
+for team_id in rank_pivot.columns:
+    color = team_colors.get(team_id, "#888888")
+    team_name = latest_names.get(team_id, f"Team {team_id}")
     fig2.add_trace(go.Scatter(
         x=rank_pivot.index,
-        y=rank_pivot[team],
+        y=rank_pivot[team_id],
         mode="lines+markers",
-        name=team,
+        name=team_name,
         line=dict(color=color, width=2),
         marker=dict(size=8)
     ))
@@ -100,7 +107,7 @@ fig2.update_layout(
     title="チーム別順位推移",
     xaxis_title="シーズン",
     yaxis_title="順位",
-    yaxis=dict(autorange="reversed", dtick=1),  # 1位が上
+    yaxis=dict(autorange="reversed", dtick=1),
     height=500,
     legend=dict(
         orientation="h",

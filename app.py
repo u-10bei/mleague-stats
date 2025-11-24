@@ -1,4 +1,6 @@
 import streamlit as st
+import pandas as pd
+from db import get_teams_for_display, get_season_points, get_team_colors
 
 st.set_page_config(
     page_title="Mリーグダッシュボード",
@@ -13,6 +15,7 @@ st.sidebar.page_link("app.py", label="🏠 トップページ")
 st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
 st.sidebar.markdown("---")
+st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 
 # メインページ（トップページ）
 st.title("🀄 Mリーグダッシュボード")
@@ -39,10 +42,8 @@ Mリーグの対戦結果を可視化し、チームや選手の成績を分析�
 ## チーム一覧
 """)
 
-import pandas as pd
-
 # チーム情報を読み込み
-teams_df = pd.read_csv("data/teams.csv")
+teams_df = get_teams_for_display()
 
 # チームをカード形式で表示
 cols = st.columns(4)
@@ -64,36 +65,40 @@ for idx, row in teams_df.iterrows():
 st.markdown("---")
 
 # 最新シーズンのハイライト
-st.subheader("📈 最新シーズン (2023) ハイライト")
+season_df = get_season_points()
+if not season_df.empty:
+    latest_season = season_df["season"].max()
+    latest = season_df[season_df["season"] == latest_season].sort_values("rank")
 
-season_df = pd.read_csv("data/team_season_points.csv")
-latest = season_df[season_df["season"] == 2023].sort_values("rank")
+    st.subheader(f"📈 最新シーズン ({latest_season}) ハイライト")
 
-col1, col2, col3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-with col1:
-    winner = latest.iloc[0]
-    st.metric(
-        label="🥇 優勝",
-        value=winner["team"],
-        delta=f"{winner['points']:+.1f} pt"
-    )
+    with col1:
+        winner = latest.iloc[0]
+        st.metric(
+            label="🥇 優勝",
+            value=winner["team_name"],
+            delta=f"{winner['points']:+.1f} pt"
+        )
 
-with col2:
-    second = latest.iloc[1]
-    st.metric(
-        label="🥈 準優勝",
-        value=second["team"],
-        delta=f"{second['points']:+.1f} pt"
-    )
+    with col2:
+        second = latest.iloc[1]
+        st.metric(
+            label="🥈 準優勝",
+            value=second["team_name"],
+            delta=f"{second['points']:+.1f} pt"
+        )
 
-with col3:
-    third = latest.iloc[2]
-    st.metric(
-        label="🥉 3位",
-        value=third["team"],
-        delta=f"{third['points']:+.1f} pt"
-    )
+    with col3:
+        third = latest.iloc[2]
+        st.metric(
+            label="🥉 3位",
+            value=third["team_name"],
+            delta=f"{third['points']:+.1f} pt"
+        )
+else:
+    st.info("シーズンデータがありません")
 
 st.markdown("---")
 st.caption("※ データはサンプルです。実際のMリーグ公式記録とは異なる場合があります。")

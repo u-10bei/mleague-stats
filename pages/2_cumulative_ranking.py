@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
+import sys
+sys.path.append("..")
+from db import get_team_colors, get_season_points, get_cumulative_points, get_team_history, get_teams
 
 st.set_page_config(
     page_title="累積ランキング | Mリーグダッシュボード",
@@ -15,29 +17,17 @@ st.sidebar.page_link("app.py", label="🏠 トップページ")
 st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
 st.sidebar.markdown("---")
+st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 
 st.title("🏆 累積ポイントランキング")
 
 # データ読み込み
-season_df = pd.read_csv("data/team_season_points.csv")
-teams_df = pd.read_csv("data/teams.csv")
+team_colors = get_team_colors()
+cumulative_df = get_cumulative_points()
 
-# チームカラーのマッピング
-team_colors = dict(zip(teams_df["team_name"], teams_df["color"]))
-
-# 累積ポイント計算
-cumulative_df = season_df.groupby("team")["points"].sum().reset_index()
-cumulative_df.columns = ["team", "total_points"]
-cumulative_df = cumulative_df.sort_values("total_points", ascending=False).reset_index(drop=True)
-cumulative_df["rank"] = range(1, len(cumulative_df) + 1)
-
-# 参加シーズン数
-season_count = season_df.groupby("team")["season"].count().reset_index()
-season_count.columns = ["team", "seasons"]
-cumulative_df = cumulative_df.merge(season_count, on="team")
-
-# 平均ポイント
-cumulative_df["avg_points"] = cumulative_df["total_points"] / cumulative_df["seasons"]
+if cumulative_df.empty:
+    st.warning("データがありません")
+    st.stop()
 
 st.markdown("## 全シーズン通算成績")
 
@@ -48,13 +38,13 @@ with col1:
     fig = go.Figure()
     
     for _, row in cumulative_df.sort_values("total_points", ascending=True).iterrows():
-        color = team_colors.get(row["team"], "#888888")
+        color = team_colors.get(row["team_id"], "#888888")
         fig.add_trace(go.Bar(
-            y=[row["team"]],
+            y=[row["team_name"]],
             x=[row["total_points"]],
             orientation="h",
             marker_color=color,
-            name=row["team"],
+            name=row["team_name"],
             text=f"{row['total_points']:+.1f}",
             textposition="outside",
             showlegend=False
@@ -75,7 +65,7 @@ with col2:
     # 順位表
     st.markdown("### 通算順位表")
     
-    display_df = cumulative_df[["rank", "team", "total_points", "seasons", "avg_points"]].copy()
+    display_df = cumulative_df[["rank", "team_name", "total_points", "seasons", "avg_points"]].copy()
     display_df.columns = ["順位", "チーム", "累積pt", "参加", "平均pt"]
     display_df["累積pt"] = display_df["累積pt"].apply(lambda x: f"{x:+.1f}")
     display_df["平均pt"] = display_df["平均pt"].apply(lambda x: f"{x:+.1f}")
@@ -87,18 +77,21 @@ st.markdown("---")
 # 累積ポイント推移
 st.subheader("📈 累積ポイント推移")
 
-# シーズンごとの累積を計算
+season_df = get_season_points()
 seasons = sorted(season_df["season"].unique())
-teams = season_df["team"].unique()
+team_ids = season_df["team_id"].unique()
+
+# 最新のチーム名マッピング
+latest_names = cumulative_df.set_index("team_id")["team_name"].to_dict()
 
 cumulative_by_season = []
-for team in teams:
-    team_data = season_df[season_df["team"] == team].sort_values("season")
+for team_id in team_ids:
+    team_data = season_df[season_df["team_id"] == team_id].sort_values("season")
     cum_points = 0
     for _, row in team_data.iterrows():
         cum_points += row["points"]
         cumulative_by_season.append({
-            "team": team,
+            "team_id": team_id,
             "season": row["season"],
             "cumulative_points": cum_points
         })
@@ -107,14 +100,15 @@ cum_df = pd.DataFrame(cumulative_by_season)
 
 fig2 = go.Figure()
 
-for team in teams:
-    team_data = cum_df[cum_df["team"] == team]
-    color = team_colors.get(team, "#888888")
+for team_id in team_ids:
+    team_data = cum_df[cum_df["team_id"] == team_id]
+    color = team_colors.get(team_id, "#888888")
+    team_name = latest_names.get(team_id, f"Team {team_id}")
     fig2.add_trace(go.Scatter(
         x=team_data["season"],
         y=team_data["cumulative_points"],
         mode="lines+markers",
-        name=team,
+        name=team_name,
         line=dict(color=color, width=2),
         marker=dict(size=8)
     ))
@@ -141,10 +135,15 @@ st.markdown("---")
 # チーム別詳細
 st.subheader("📋 チーム別シーズン成績")
 
-selected_team = st.selectbox("チームを選択", sorted(teams))
+# チーム選択（team_idと名前のマッピング）
+teams_df = get_teams()
+team_options = {latest_names.get(row["team_id"], f"Team {row['team_id']}"): row["team_id"] 
+                for _, row in teams_df.iterrows()}
 
-team_history = season_df[season_df["team"] == selected_team].sort_values("season", ascending=False)
-team_info = teams_df[teams_df["team_name"] == selected_team].iloc[0]
+selected_team_name = st.selectbox("チームを選択", sorted(team_options.keys()))
+selected_team_id = team_options[selected_team_name]
+
+team_history = get_team_history(selected_team_id)
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -166,8 +165,8 @@ with col4:
 
 st.markdown("#### シーズン成績履歴")
 
-history_display = team_history[["season", "points", "rank"]].copy()
-history_display.columns = ["シーズン", "ポイント", "順位"]
+history_display = team_history[["season", "team_name", "points", "rank"]].copy()
+history_display.columns = ["シーズン", "チーム名", "ポイント", "順位"]
 history_display["ポイント"] = history_display["ポイント"].apply(lambda x: f"{x:+.1f}")
 history_display["順位"] = history_display["順位"].apply(lambda x: f"{x}位")
 

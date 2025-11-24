@@ -14,8 +14,8 @@ Mリーグの対戦結果を可視化するStreamlitダッシュボードです�
 
 ```bash
 # リポジトリをクローン
-git clone https://github.com/your-username/mleague-stats.git
-cd mleague-stats
+git clone https://github.com/your-username/mleague-dashboard.git
+cd mleague-dashboard
 
 # 依存関係をインストール
 pip install -r requirements.txt
@@ -35,21 +35,33 @@ streamlit run app.py
 ```
 mleague-dashboard/
 ├── .devcontainer/
-│   └── devcontainer.json    # Codespaces設定
+│   └── devcontainer.json       # Codespaces設定
 ├── data/
-│   ├── team_season_points.csv  # シーズン別チームポイント
-│   └── teams.csv               # チームマスターデータ
+│   └── mleague.db              # SQLiteデータベース
 ├── pages/
-│   ├── 1_season_ranking.py         # 年度別ランキング
-│   └── 2_cumulative_ranking.py     # 累積ランキング
-├── app.py                   # メインアプリ（トップページ）
+│   ├── 1_season_ranking.py     # 年度別ランキング
+│   └── 2_cumulative_ranking.py # 累積ランキング
+├── app.py                      # メインアプリ（トップページ）
+├── db.py                       # データベース接続ユーティリティ
+├── init_db.py                  # データベース初期化スクリプト
 ├── requirements.txt
 └── README.md
 ```
 
 ## データについて
 
-現在のデータはサンプルです。実際のMリーグ公式記録を反映するには、`data/` ディレクトリ内のCSVファイルを更新してください。
+データはSQLiteデータベース (`data/mleague.db`) に保存されています。
+
+### データベース初期化
+
+```bash
+python init_db.py
+```
+
+### テーブル構造
+
+- `teams`: チーム情報（team_id, team_name, short_name, color, established）
+- `team_season_points`: シーズン別ポイント（season, team, points, rank）
 
 ## デプロイ
 
