@@ -14,8 +14,8 @@ Mリーグの対戦結果を可視化するStreamlitダッシュボードです�
 
 ```bash
 # リポジトリをクローン
-git clone https://github.com/your-username/mleague-dashboard.git
-cd mleague-dashboard
+git clone https://github.com/your-username/mleague-stats.git
+cd mleague-stats
 
 # 依存関係をインストール
 pip install -r requirements.txt
