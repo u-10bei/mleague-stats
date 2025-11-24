@@ -9,6 +9,13 @@ st.set_page_config(
     layout="wide"
 )
 
+# サイドバーナビゲーション
+st.sidebar.title("🀄 メニュー")
+st.sidebar.page_link("app.py", label="🏠 トップページ")
+st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
+st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
+st.sidebar.markdown("---")
+
 st.title("🏆 累積ポイントランキング")
 
 # データ読み込み
