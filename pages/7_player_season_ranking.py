@@ -82,7 +82,7 @@ with col1:
         xaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=2)
     )
     
-    st.plotly_chart(fig, width="full")
+    st.plotly_chart(fig, width="stretch")
 
 with col2:
     # ランキング表（上位10名）
@@ -202,7 +202,7 @@ if not all_stats.empty:
         )
     )
     
-    st.plotly_chart(fig2, width="full")
+    st.plotly_chart(fig2, width="stretch")
 
 st.markdown("---")
 st.caption("※ データはデータベースに登録された情報を表示しています。")
