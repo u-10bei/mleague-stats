@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from db import get_teams_for_display, get_season_points, get_team_colors
+from db import get_teams_for_display, get_season_points, get_team_colors, hide_default_sidebar_navigation
 
 st.set_page_config(
     page_title="Mリーグダッシュボード",
@@ -8,6 +8,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# デフォルトのサイドバーナビゲーションを非表示
+hide_default_sidebar_navigation()
 
 # サイドバーナビゲーション
 st.sidebar.title("🀄 メニュー")

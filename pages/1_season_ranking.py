@@ -3,13 +3,16 @@ import pandas as pd
 import plotly.graph_objects as go
 import sys
 sys.path.append("..")
-from db import get_team_colors, get_season_points, get_seasons, get_season_data
+from db import get_team_colors, get_season_points, get_seasons, get_season_data, hide_default_sidebar_navigation
 
 st.set_page_config(
     page_title="年度別ランキング | Mリーグダッシュボード",
     page_icon="🀄",
     layout="wide"
 )
+
+# デフォルトのサイドバーナビゲーションを非表示
+hide_default_sidebar_navigation()
 
 # サイドバーナビゲーション
 st.sidebar.title("🀄 メニュー")

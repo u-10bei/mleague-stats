@@ -1,8 +1,11 @@
 import streamlit as st
 import pandas as pd
-from db import get_connection
+from db import get_connection, hide_default_sidebar_navigation
 
 st.set_page_config(page_title="選手成績入力", page_icon="📊", layout="wide")
+
+# デフォルトのサイドバーナビゲーションを非表示
+hide_default_sidebar_navigation()
 
 # サイドバーナビゲーション
 st.sidebar.title("🀄 メニュー")

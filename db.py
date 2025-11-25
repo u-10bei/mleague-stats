@@ -1,7 +1,18 @@
 import sqlite3
 import pandas as pd
+import streamlit as st
 
 DB_PATH = "data/mleague.db"
+
+def hide_default_sidebar_navigation():
+    """Streamlitのデフォルトサイドバーナビゲーションを非表示にする"""
+    st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
 def get_connection():
     return sqlite3.connect(DB_PATH)

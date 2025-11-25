@@ -2,14 +2,16 @@ import streamlit as st
 import pandas as pd
 import sys
 sys.path.append("..")
-from db import (get_connection, get_teams, get_season_points, get_seasons, 
-                get_teams_for_display, get_all_team_names, get_current_team_name)
+from db import get_connection, get_season_data, hide_default_sidebar_navigation
 
 st.set_page_config(
     page_title="データ管理 | Mリーグダッシュボード",
     page_icon="🀄",
     layout="wide"
 )
+
+# デフォルトのサイドバーナビゲーションを非表示
+hide_default_sidebar_navigation()
 
 # サイドバーナビゲーション
 st.sidebar.title("🀄 メニュー")
@@ -26,263 +28,164 @@ st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
 st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
 st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
 
-
-
+# メインページ
 st.title("⚙️ データ管理")
 
-tab1, tab2, tab3 = st.tabs(["📝 シーズンポイント入力", "🏢 チーム管理", "📋 データ確認"])
+st.markdown("""
+このページでは、シーズン別のチームポイントを管理できます。
+""")
 
-# チーム情報を取得
-teams_df = get_teams()
-teams_display = get_teams_for_display()
-team_options = {row["team_name"]: row["team_id"] for _, row in teams_display.iterrows()}
+# シーズン選択
+# team_namesテーブルから全シーズンを取得（データ未入力のシーズンも選択可能に）
+conn = get_connection()
+cursor = conn.cursor()
+cursor.execute("SELECT DISTINCT season FROM team_names ORDER BY season DESC")
+seasons = [row[0] for row in cursor.fetchall()]
+conn.close()
 
-# ========== タブ1: シーズンポイント入力 ==========
-with tab1:
-    st.subheader("シーズンポイント入力")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        input_season = st.number_input("シーズン（年）", min_value=2018, max_value=2030, value=2024)
-        input_team_name = st.selectbox("チーム", list(team_options.keys()))
-        input_team_id = team_options[input_team_name]
-    
-    with col2:
-        input_points = st.number_input("ポイント", min_value=-2000.0, max_value=2000.0, value=0.0, step=0.1, format="%.1f")
-        input_rank = st.number_input("順位", min_value=1, max_value=10, value=1)
-    
-    if st.button("登録", key="add_season_point"):
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        # 既存データチェック
-        cursor.execute(
-            "SELECT id FROM team_season_points WHERE season = ? AND team_id = ?",
-            (input_season, input_team_id)
-        )
-        existing = cursor.fetchone()
-        
-        if existing:
-            cursor.execute(
-                "UPDATE team_season_points SET points = ?, rank = ? WHERE season = ? AND team_id = ?",
-                (input_points, input_rank, input_season, input_team_id)
-            )
-            st.success(f"{input_season}シーズン {input_team_name} のデータを更新しました")
-        else:
-            cursor.execute(
-                "INSERT INTO team_season_points (season, team_id, points, rank) VALUES (?, ?, ?, ?)",
-                (input_season, input_team_id, input_points, input_rank)
-            )
-            st.success(f"{input_season}シーズン {input_team_name} のデータを登録しました")
-        
-        conn.commit()
-        conn.close()
-    
-    st.markdown("---")
-    
-    # 一括入力フォーム
-    st.subheader("シーズン一括入力")
-    
-    bulk_season = st.number_input("一括入力するシーズン（年）", min_value=2018, max_value=2030, value=2024, key="bulk_season")
-    
-    st.markdown("各チームのポイントと順位を入力してください：")
-    
-    bulk_data = []
-    cols = st.columns(2)
-    
-    for idx, (team_name, team_id) in enumerate(team_options.items()):
-        with cols[idx % 2]:
-            with st.expander(team_name):
-                pts = st.number_input(f"ポイント", min_value=-2000.0, max_value=2000.0, value=0.0, step=0.1, format="%.1f", key=f"bulk_pts_{team_id}")
-                rnk = st.number_input(f"順位", min_value=1, max_value=10, value=idx+1, key=f"bulk_rnk_{team_id}")
-                bulk_data.append({"team_id": team_id, "team_name": team_name, "points": pts, "rank": rnk})
-    
-    if st.button("一括登録", key="bulk_add"):
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        for data in bulk_data:
-            cursor.execute(
-                "SELECT id FROM team_season_points WHERE season = ? AND team_id = ?",
-                (bulk_season, data["team_id"])
-            )
-            existing = cursor.fetchone()
-            
-            if existing:
-                cursor.execute(
-                    "UPDATE team_season_points SET points = ?, rank = ? WHERE season = ? AND team_id = ?",
-                    (data["points"], data["rank"], bulk_season, data["team_id"])
-                )
-            else:
-                cursor.execute(
-                    "INSERT INTO team_season_points (season, team_id, points, rank) VALUES (?, ?, ?, ?)",
-                    (bulk_season, data["team_id"], data["points"], data["rank"])
-                )
-        
-        conn.commit()
-        conn.close()
-        st.success(f"{bulk_season}シーズンのデータを一括登録しました")
+if not seasons:
+    st.warning("シーズンデータがありません。")
+    st.stop()
 
-# ========== タブ2: チーム管理 ==========
-with tab2:
-    st.subheader("チーム編集")
-    
-    edit_team_name = st.selectbox("編集するチーム", list(team_options.keys()), key="edit_team")
-    edit_team_id = team_options[edit_team_name]
-    
-    # 現在のチーム情報を取得
-    current_team = teams_df[teams_df["team_id"] == edit_team_id].iloc[0]
-    
-    # セッション状態の初期化
-    if "last_edit_team_id" not in st.session_state:
-        st.session_state.last_edit_team_id = None
-    
-    # チーム選択が変わったらセッション状態をリセット
-    if st.session_state.last_edit_team_id != edit_team_id:
-        st.session_state.last_edit_team_id = edit_team_id
-        st.session_state.edit_short_name = current_team["short_name"]
-        st.session_state.edit_established = int(current_team["established"])
-        st.session_state.edit_color = current_team["color"]
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        edit_short_name = st.text_input("略称", value=st.session_state.edit_short_name, key=f"edit_short_{edit_team_id}")
-        edit_established = st.number_input("設立年", min_value=2018, max_value=2030, value=st.session_state.edit_established, key=f"edit_est_{edit_team_id}")
-    
-    with col2:
-        edit_color = st.color_picker("チームカラー", value=st.session_state.edit_color, key=f"edit_color_{edit_team_id}")
-    
-    if st.button("チーム情報を更新", key="update_team"):
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE teams SET short_name = ?, color = ?, established = ? WHERE team_id = ?",
-            (edit_short_name, edit_color, edit_established, edit_team_id)
-        )
-        conn.commit()
-        conn.close()
-        # セッション状態も更新
-        st.session_state.edit_short_name = edit_short_name
-        st.session_state.edit_established = edit_established
-        st.session_state.edit_color = edit_color
-        st.success(f"チーム情報を更新しました")
-        st.rerun()
-    
-    st.markdown("---")
-    
-    st.subheader("チーム追加")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        new_short_name = st.text_input("略称")
-    
-    with col2:
-        new_color = st.color_picker("チームカラー", "#000000")
-        new_established = st.number_input("設立年", min_value=2018, max_value=2030, value=2024)
-    
-    new_initial_name = st.text_input("初期チーム名（正式名称）")
-    
-    if st.button("チーム追加", key="add_team"):
-        if new_short_name and new_initial_name:
-            conn = get_connection()
-            cursor = conn.cursor()
-            
-            # 新しいteam_idを取得
-            cursor.execute("SELECT MAX(team_id) FROM teams")
-            max_id = cursor.fetchone()[0] or 0
-            new_team_id = max_id + 1
-            
-            # チームマスター追加
-            cursor.execute(
-                "INSERT INTO teams (team_id, short_name, color, established) VALUES (?, ?, ?, ?)",
-                (new_team_id, new_short_name, new_color, new_established)
-            )
-            
-            # 初期チーム名を登録
-            cursor.execute(
-                "INSERT INTO team_names (team_id, season, team_name) VALUES (?, ?, ?)",
-                (new_team_id, new_established, new_initial_name)
-            )
-            
-            conn.commit()
-            conn.close()
-            st.success(f"チーム「{new_initial_name}」を追加しました")
-            st.rerun()
-        else:
-            st.warning("略称と初期チーム名を入力してください")
-    
-    st.markdown("---")
-    
-    # チーム一覧
-    st.subheader("登録チーム一覧")
-    
-    teams_display = get_teams_for_display()
-    st.dataframe(teams_display, hide_index=True)
-    
-    st.markdown("---")
-    
-    st.subheader("チーム削除")
-    delete_team_name = st.selectbox("削除するチーム", list(team_options.keys()), key="delete_team")
-    delete_team_id = team_options[delete_team_name]
-    
-    st.warning("⚠️ チームを削除すると、関連するすべてのデータ（チーム名履歴、シーズンポイント）も削除されます。")
-    
-    if st.button("削除", key="del_team", type="secondary"):
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM teams WHERE team_id = ?", (delete_team_id,))
-        cursor.execute("DELETE FROM team_names WHERE team_id = ?", (delete_team_id,))
-        cursor.execute("DELETE FROM team_season_points WHERE team_id = ?", (delete_team_id,))
-        conn.commit()
-        conn.close()
-        st.success(f"チーム「{delete_team_name}」を削除しました")
-        st.rerun()
+selected_season = st.selectbox("シーズンを選択", seasons)
 
-# ========== タブ3: データ確認 ==========
-with tab3:
-    st.subheader("シーズンポイントデータ")
+st.markdown("---")
+
+# そのシーズンに参加しているチーム情報を取得
+conn = get_connection()
+teams_query = f"""
+SELECT t.team_id, tn.team_name
+FROM teams t
+JOIN team_names tn ON t.team_id = tn.team_id
+WHERE tn.season = {selected_season}
+ORDER BY t.team_id
+"""
+teams_df = pd.read_sql_query(teams_query, conn)
+conn.close()
+
+if teams_df.empty:
+    st.warning(f"{selected_season}年度のチーム情報がありません。")
+    st.stop()
+
+# 既存データを取得
+existing_data = get_season_data(selected_season)
+
+# データ入力フォーム
+st.subheader(f"{selected_season}年度 チームポイント入力")
+
+with st.form("team_points_form"):
+    updated_data = []
     
-    season_df = get_season_points()
-    seasons = get_seasons()
-    
-    if seasons:
-        filter_season = st.selectbox("シーズンで絞り込み", ["すべて"] + seasons, key="filter_season")
+    for _, team in teams_df.iterrows():
+        team_id = team["team_id"]
+        team_name = team["team_name"]
         
-        if filter_season != "すべて":
-            display_df = season_df[season_df["season"] == filter_season]
-        else:
-            display_df = season_df
+        # 既存データから現在のポイントを取得
+        current_point = 0
+        if not existing_data.empty:
+            existing_row = existing_data[existing_data["team_id"] == team_id]
+            if not existing_row.empty:
+                current_point = existing_row.iloc[0]["points"]
         
-        display_df = display_df.sort_values(["season", "rank"], ascending=[False, True])
-        st.dataframe(display_df, hide_index=True)
-        
-        st.markdown("---")
-        
-        # データ削除
-        st.subheader("データ削除")
-        
-        col1, col2 = st.columns(2)
-        
+        col1, col2 = st.columns([2, 1])
         with col1:
-            del_season = st.selectbox("シーズン", seasons, key="del_season")
-        
+            st.write(f"**{team_name}**")
         with col2:
-            del_team_name = st.selectbox("チーム", list(team_options.keys()), key="del_team_data")
-            del_team_id = team_options[del_team_name]
-        
-        if st.button("このデータを削除", key="del_data", type="secondary"):
+            point = st.number_input(
+                f"{team_name}のポイント",
+                value=float(current_point),
+                step=0.1,
+                format="%.1f",
+                key=f"point_{team_id}",
+                label_visibility="collapsed"
+            )
+            updated_data.append({
+                "team_id": team_id,
+                "team_name": team_name,
+                "points": point
+            })
+    
+    submitted = st.form_submit_button("💾 保存", type="primary")
+    
+    if submitted:
+        try:
             conn = get_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                "DELETE FROM team_season_points WHERE season = ? AND team_id = ?",
-                (del_season, del_team_id)
-            )
+            
+            # ポイントでソートしてランクを計算
+            sorted_data = sorted(updated_data, key=lambda x: x["points"], reverse=True)
+            for rank, data in enumerate(sorted_data, start=1):
+                cursor.execute("""
+                    INSERT OR REPLACE INTO team_season_points (team_id, season, points, rank)
+                    VALUES (?, ?, ?, ?)
+                """, (data["team_id"], selected_season, data["points"], rank))
+            
             conn.commit()
             conn.close()
-            st.success(f"{del_season}シーズン {del_team_name} のデータを削除しました")
+            
+            st.success("✅ データを保存しました")
             st.rerun()
-    else:
-        st.info("シーズンデータがありません")
+        except Exception as e:
+            st.error(f"❌ エラーが発生しました: {e}")
+
+# 現在のデータ表示
+st.markdown("---")
+st.subheader("現在のデータ")
+
+if not existing_data.empty:
+    # 表示用にカラムを選択
+    display_data = existing_data[["team_name", "points"]].copy()
+    display_data.columns = ["チーム名", "ポイント"]
+    display_data = display_data.sort_values("ポイント", ascending=False).reset_index(drop=True)
+    
+    st.dataframe(display_data, width="stretch")
+    
+    # データ整合性チェック
+    st.markdown("---")
+    st.subheader("🔍 データ整合性チェック")
+    
+    total_points = display_data["ポイント"].sum()
+    num_teams = len(display_data)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("参加チーム数", f"{num_teams}チーム")
+    with col2:
+        st.metric("合計ポイント", f"{total_points:,.1f}")
+    with col3:
+        # チームポイント制の合計は通常0になるはず（±が打ち消し合う）
+        if abs(total_points) < 0.1:
+            st.success("✅ 正常")
+        elif abs(total_points) < 1.0:
+            st.warning(f"⚠️ 誤差: {total_points:+.1f}")
+        else:
+            st.error(f"❌ 異常値: {total_points:+.1f}")
+    
+    # 詳細情報
+    if abs(total_points) > 0.1:
+        st.info("""
+        **ℹ️ 注意事項**
+        
+        Mリーグのチームポイント制では、全チームの合計ポイントは通常0になります。
+        合計がプラスまたはマイナスの場合、入力ミスの可能性があります。
+        """)
+else:
+    st.info("このシーズンのデータはまだ入力されていません。")
+
+# データ削除
+st.markdown("---")
+with st.expander("⚠️ 危険な操作（データ削除）"):
+    st.warning("このシーズンのすべてのポイントデータを削除します。この操作は取り消せません。")
+    
+    if st.button("🗑️ このシーズンのデータをすべて削除", type="secondary"):
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM team_season_points WHERE season = ?", (selected_season,))
+            conn.commit()
+            conn.close()
+            
+            st.success("✅ データを削除しました")
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ エラーが発生しました: {e}")

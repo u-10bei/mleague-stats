@@ -3,13 +3,16 @@ import pandas as pd
 import plotly.graph_objects as go
 import sys
 sys.path.append("..")
-from db import get_player_cumulative_stats, get_player_history, get_players, get_player_all_stats
+from db import get_player_cumulative_stats, get_player_history, get_players, get_player_all_stats, hide_default_sidebar_navigation
 
 st.set_page_config(
     page_title="累積選手ランキング | Mリーグダッシュボード",
     page_icon="🀄",
     layout="wide"
 )
+
+# デフォルトのサイドバーナビゲーションを非表示
+hide_default_sidebar_navigation()
 
 # サイドバーナビゲーション
 st.sidebar.title("🀄 メニュー")
