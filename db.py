@@ -275,3 +275,121 @@ def get_players_by_team(team_id, season):
     """, conn, params=(team_id, season))
     conn.close()
     return df
+
+# ========== 選手成績関連（新規追加） ==========
+
+def get_player_seasons():
+    """選手成績が登録されているシーズン一覧を取得"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT season FROM player_season_stats ORDER BY season DESC")
+    seasons = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return seasons
+
+def get_player_season_ranking(season):
+    """指定シーズンの選手ランキングを取得"""
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT 
+            p.player_id,
+            p.player_name,
+            ps.games,
+            ps.points,
+            ps.rank_1st,
+            ps.rank_2nd,
+            ps.rank_3rd,
+            ps.rank_4th,
+            tn.team_name,
+            t.color
+        FROM player_season_stats ps
+        JOIN players p ON ps.player_id = p.player_id
+        LEFT JOIN player_teams pt ON ps.player_id = pt.player_id AND ps.season = pt.season
+        LEFT JOIN team_names tn ON pt.team_id = tn.team_id AND pt.season = tn.season
+        LEFT JOIN teams t ON pt.team_id = t.team_id
+        WHERE ps.season = ? AND ps.games > 0
+        ORDER BY ps.points DESC
+    """, conn, params=(season,))
+    conn.close()
+    
+    # ランクを追加
+    df['rank'] = range(1, len(df) + 1)
+    return df
+
+def get_player_cumulative_stats():
+    """全選手の累積成績を取得"""
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT 
+            p.player_id,
+            p.player_name,
+            SUM(ps.games) as total_games,
+            SUM(ps.points) as total_points,
+            SUM(ps.rank_1st) as total_1st,
+            SUM(ps.rank_2nd) as total_2nd,
+            SUM(ps.rank_3rd) as total_3rd,
+            SUM(ps.rank_4th) as total_4th,
+            COUNT(DISTINCT ps.season) as seasons,
+            AVG(ps.points) as avg_points
+        FROM player_season_stats ps
+        JOIN players p ON ps.player_id = p.player_id
+        WHERE ps.games > 0
+        GROUP BY p.player_id, p.player_name
+        ORDER BY total_points DESC
+    """, conn)
+    conn.close()
+    
+    # ランクを追加
+    df['rank'] = range(1, len(df) + 1)
+    
+    # 最新所属チームを追加
+    team_info = []
+    for player_id in df['player_id']:
+        team_id, team_name = get_player_current_team(player_id)
+        team_info.append({
+            'team_id': team_id,
+            'team_name': team_name or '-'
+        })
+    
+    df['team_name'] = [t['team_name'] for t in team_info]
+    
+    return df
+
+def get_player_history(player_id):
+    """選手のシーズン履歴を取得"""
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT 
+            ps.season,
+            tn.team_name,
+            ps.games,
+            ps.points,
+            ps.rank_1st,
+            ps.rank_2nd,
+            ps.rank_3rd,
+            ps.rank_4th
+        FROM player_season_stats ps
+        LEFT JOIN player_teams pt ON ps.player_id = pt.player_id AND ps.season = pt.season
+        LEFT JOIN team_names tn ON pt.team_id = tn.team_id AND pt.season = tn.season
+        WHERE ps.player_id = ?
+        ORDER BY ps.season DESC
+    """, conn, params=(player_id,))
+    conn.close()
+    return df
+
+def get_player_all_stats():
+    """全選手の全シーズン成績を取得（推移グラフ用）"""
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT 
+            p.player_id,
+            p.player_name,
+            ps.season,
+            ps.points
+        FROM player_season_stats ps
+        JOIN players p ON ps.player_id = p.player_id
+        WHERE ps.games > 0
+        ORDER BY ps.season, ps.points DESC
+    """, conn)
+    conn.close()
+    return df

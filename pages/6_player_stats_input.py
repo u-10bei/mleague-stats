@@ -7,13 +7,19 @@ st.set_page_config(page_title="選手成績入力", page_icon="📊", layout="wi
 # サイドバーナビゲーション
 st.sidebar.title("🀄 メニュー")
 st.sidebar.page_link("app.py", label="🏠 トップページ")
+st.sidebar.markdown("### 📊 チーム成績")
 st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
+st.sidebar.markdown("### 👤 選手成績")
+st.sidebar.page_link("pages/7_player_season_ranking.py", label="📊 年度別ランキング")
+st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積ランキング")
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
 st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
 st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
+
+
 
 st.title("📊 選手成績入力")
 
@@ -281,6 +287,83 @@ st.dataframe(
         "整合性": st.column_config.TextColumn(width="small")
     }
 )
+
+# ========== チームスコア整合性チェック ==========
+st.markdown("---")
+st.subheader("📊 チームスコア整合性チェック")
+
+# チームごとの選手ポイント合計を計算
+team_player_totals = {}
+for player_data in st.session_state.stats_data:
+    team_name = player_data['team_name']
+    team_id = player_data['team_id']
+    if team_name not in team_player_totals:
+        team_player_totals[team_name] = {
+            'team_id': team_id,
+            'players_total': 0.0
+        }
+    team_player_totals[team_name]['players_total'] += player_data['points']
+
+# チームの登録スコアを取得
+conn = get_connection()
+cursor = conn.cursor()
+cursor.execute("""
+    SELECT tsp.team_id, tn.team_name, tsp.points
+    FROM team_season_points tsp
+    JOIN team_names tn ON tsp.team_id = tn.team_id AND tsp.season = tn.season
+    WHERE tsp.season = ?
+    ORDER BY tn.team_name
+""", (selected_season,))
+team_scores = cursor.fetchall()
+conn.close()
+
+# 整合性チェック結果を作成
+team_check_data = []
+inconsistent_teams = []
+
+for team_id, team_name, team_points in team_scores:
+    if team_name in team_player_totals:
+        players_total = team_player_totals[team_name]['players_total']
+        difference = team_points - players_total
+        
+        # 小数点誤差を考慮（0.1pt以内は整合とみなす）
+        is_consistent = abs(difference) <= 0.1
+        
+        team_check_data.append({
+            'チーム名': team_name,
+            'チームスコア': team_points,
+            '選手合計': players_total,
+            '差分': difference,
+            '整合性': '✅' if is_consistent else '⚠️'
+        })
+        
+        if not is_consistent:
+            inconsistent_teams.append(team_name)
+
+if team_check_data:
+    # 整合性サマリー
+    if inconsistent_teams:
+        st.warning(f"⚠️ {len(inconsistent_teams)}チームでスコアが不整合です: {', '.join(inconsistent_teams)}")
+    else:
+        st.success("✅ すべてのチームでスコアが整合しています")
+    
+    # チームスコア比較テーブル
+    team_check_df = pd.DataFrame(team_check_data)
+    
+    st.dataframe(
+        team_check_df,
+        hide_index=True,
+        column_config={
+            'チームスコア': st.column_config.NumberColumn(format="%.1f"),
+            '選手合計': st.column_config.NumberColumn(format="%.1f"),
+            '差分': st.column_config.NumberColumn(format="%+.1f"),
+            '整合性': st.column_config.TextColumn(width="small")
+        }
+    )
+    
+    st.info("💡 チームスコア（team_season_pointsテーブル）と選手スコア合計が一致しているかチェックします。差分が0.1pt以内は整合とみなします。")
+else:
+    st.info(f"ℹ️ {selected_season}シーズンのチームスコアが未登録です。先に「データ管理」ページでチームスコアを登録してください。")
 
 # 統計情報
 st.markdown("---")

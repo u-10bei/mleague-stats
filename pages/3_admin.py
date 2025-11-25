@@ -14,13 +14,19 @@ st.set_page_config(
 # サイドバーナビゲーション
 st.sidebar.title("🀄 メニュー")
 st.sidebar.page_link("app.py", label="🏠 トップページ")
+st.sidebar.markdown("### 📊 チーム成績")
 st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
+st.sidebar.markdown("### 👤 選手成績")
+st.sidebar.page_link("pages/7_player_season_ranking.py", label="📊 年度別ランキング")
+st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積ランキング")
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
 st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
 st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
+
+
 
 st.title("⚙️ データ管理")
 
