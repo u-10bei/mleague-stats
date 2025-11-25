@@ -18,6 +18,7 @@ st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキ
 st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
+st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
 
 st.title("⚙️ データ管理")
 
@@ -40,7 +41,7 @@ with tab1:
         input_team_id = team_options[input_team_name]
     
     with col2:
-        input_points = st.number_input("ポイント", min_value=-1000.0, max_value=1000.0, value=0.0, step=0.1)
+        input_points = st.number_input("ポイント", min_value=-2000.0, max_value=2000.0, value=0.0, step=0.1, format="%.1f")
         input_rank = st.number_input("順位", min_value=1, max_value=10, value=1)
     
     if st.button("登録", key="add_season_point"):
@@ -85,7 +86,7 @@ with tab1:
     for idx, (team_name, team_id) in enumerate(team_options.items()):
         with cols[idx % 2]:
             with st.expander(team_name):
-                pts = st.number_input(f"ポイント", min_value=-1000.0, max_value=1000.0, value=0.0, step=0.1, key=f"bulk_pts_{team_id}")
+                pts = st.number_input(f"ポイント", min_value=-2000.0, max_value=2000.0, value=0.0, step=0.1, format="%.1f", key=f"bulk_pts_{team_id}")
                 rnk = st.number_input(f"順位", min_value=1, max_value=10, value=idx+1, key=f"bulk_rnk_{team_id}")
                 bulk_data.append({"team_id": team_id, "team_name": team_name, "points": pts, "rank": rnk})
     
@@ -177,6 +178,52 @@ with tab2:
 
 # ========== タブ3: チーム管理 ==========
 with tab3:
+    st.subheader("チーム編集")
+    
+    edit_team_name = st.selectbox("編集するチーム", list(team_options.keys()), key="edit_team")
+    edit_team_id = team_options[edit_team_name]
+    
+    # 現在のチーム情報を取得
+    current_team = teams_df[teams_df["team_id"] == edit_team_id].iloc[0]
+    
+    # セッション状態の初期化
+    if "last_edit_team_id" not in st.session_state:
+        st.session_state.last_edit_team_id = None
+    
+    # チーム選択が変わったらセッション状態をリセット
+    if st.session_state.last_edit_team_id != edit_team_id:
+        st.session_state.last_edit_team_id = edit_team_id
+        st.session_state.edit_short_name = current_team["short_name"]
+        st.session_state.edit_established = int(current_team["established"])
+        st.session_state.edit_color = current_team["color"]
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        edit_short_name = st.text_input("略称", value=st.session_state.edit_short_name, key=f"edit_short_{edit_team_id}")
+        edit_established = st.number_input("設立年", min_value=2018, max_value=2030, value=st.session_state.edit_established, key=f"edit_est_{edit_team_id}")
+    
+    with col2:
+        edit_color = st.color_picker("チームカラー", value=st.session_state.edit_color, key=f"edit_color_{edit_team_id}")
+    
+    if st.button("チーム情報を更新", key="update_team"):
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE teams SET short_name = ?, color = ?, established = ? WHERE team_id = ?",
+            (edit_short_name, edit_color, edit_established, edit_team_id)
+        )
+        conn.commit()
+        conn.close()
+        # セッション状態も更新
+        st.session_state.edit_short_name = edit_short_name
+        st.session_state.edit_established = edit_established
+        st.session_state.edit_color = edit_color
+        st.success(f"チーム情報を更新しました")
+        st.rerun()
+    
+    st.markdown("---")
+    
     st.subheader("チーム追加")
     
     col1, col2 = st.columns(2)

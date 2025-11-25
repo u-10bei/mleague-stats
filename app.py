@@ -16,6 +16,7 @@ st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキ
 st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
+st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
 
 # メインページ（トップページ）
 st.title("🀄 Mリーグダッシュボード")

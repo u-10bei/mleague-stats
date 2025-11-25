@@ -173,3 +173,105 @@ def get_teams_for_display():
             "established": row["established"]
         })
     return pd.DataFrame(result)
+
+# ========== 選手関連 ==========
+
+def get_players():
+    """全選手を取得"""
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT * FROM players ORDER BY player_id", conn)
+    conn.close()
+    return df
+
+def get_player(player_id):
+    """選手情報を取得"""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        "SELECT * FROM players WHERE player_id = ?",
+        conn,
+        params=(player_id,)
+    )
+    conn.close()
+    return df.iloc[0] if not df.empty else None
+
+def get_player_teams(player_id):
+    """選手の所属チーム履歴を取得"""
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT pt.season, pt.team_id, tn.team_name
+        FROM player_teams pt
+        JOIN team_names tn ON pt.team_id = tn.team_id AND pt.season = tn.season
+        WHERE pt.player_id = ?
+        ORDER BY pt.season DESC
+    """, conn, params=(player_id,))
+    conn.close()
+    return df
+
+def get_player_current_team(player_id):
+    """選手の最新所属チームを取得"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT pt.team_id, tn.team_name
+        FROM player_teams pt
+        JOIN team_names tn ON pt.team_id = tn.team_id AND pt.season = tn.season
+        WHERE pt.player_id = ?
+        ORDER BY pt.season DESC
+        LIMIT 1
+    """, (player_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result if result else (None, None)
+
+def get_player_season_stats(player_id):
+    """選手のシーズン成績を取得"""
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT ps.*, pt.team_id, tn.team_name
+        FROM player_season_stats ps
+        LEFT JOIN player_teams pt ON ps.player_id = pt.player_id AND ps.season = pt.season
+        LEFT JOIN team_names tn ON pt.team_id = tn.team_id AND pt.season = tn.season
+        WHERE ps.player_id = ?
+        ORDER BY ps.season DESC
+    """, conn, params=(player_id,))
+    conn.close()
+    return df
+
+def get_all_player_stats_for_season(season):
+    """指定シーズンの全選手成績を取得"""
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT 
+            p.player_id,
+            p.player_name,
+            ps.season,
+            ps.games,
+            ps.points,
+            ps.rank_1st,
+            ps.rank_2nd,
+            ps.rank_3rd,
+            ps.rank_4th,
+            pt.team_id,
+            tn.team_name
+        FROM player_season_stats ps
+        JOIN players p ON ps.player_id = p.player_id
+        LEFT JOIN player_teams pt ON ps.player_id = pt.player_id AND ps.season = pt.season
+        LEFT JOIN team_names tn ON pt.team_id = tn.team_id AND pt.season = tn.season
+        WHERE ps.season = ?
+        ORDER BY ps.points DESC
+    """, conn, params=(season,))
+    conn.close()
+    return df
+
+def get_players_by_team(team_id, season):
+    """指定チーム・シーズンの所属選手を取得"""
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT p.player_id, p.player_name
+        FROM player_teams pt
+        JOIN players p ON pt.player_id = p.player_id
+        WHERE pt.team_id = ? AND pt.season = ?
+        ORDER BY p.player_name
+    """, conn, params=(team_id, season))
+    conn.close()
+    return df
