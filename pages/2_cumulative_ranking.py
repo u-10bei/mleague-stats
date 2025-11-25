@@ -19,6 +19,8 @@ st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ラン�
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
+st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
+st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
 
 st.title("🏆 累積ポイントランキング")
 
@@ -60,7 +62,7 @@ with col1:
         xaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=2)
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig)
 
 with col2:
     # 順位表
@@ -71,7 +73,7 @@ with col2:
     display_df["累積pt"] = display_df["累積pt"].apply(lambda x: f"{x:+.1f}")
     display_df["平均pt"] = display_df["平均pt"].apply(lambda x: f"{x:+.1f}")
     
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, hide_index=True)
 
 st.markdown("---")
 
@@ -129,7 +131,7 @@ fig2.update_layout(
     yaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=1)
 )
 
-st.plotly_chart(fig2, use_container_width=True)
+st.plotly_chart(fig2)
 
 st.markdown("---")
 
@@ -171,7 +173,7 @@ history_display.columns = ["シーズン", "チーム名", "ポイント", "順�
 history_display["ポイント"] = history_display["ポイント"].apply(lambda x: f"{x:+.1f}")
 history_display["順位"] = history_display["順位"].apply(lambda x: f"{x}位")
 
-st.dataframe(history_display, use_container_width=True, hide_index=True)
+st.dataframe(history_display, hide_index=True)
 
 st.markdown("---")
 st.caption("※ データはサンプルです。実際のMリーグ公式記録とは異なる場合があります。")

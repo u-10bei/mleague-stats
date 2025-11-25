@@ -19,10 +19,12 @@ st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ラン�
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
+st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
+st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
 
 st.title("⚙️ データ管理")
 
-tab1, tab2, tab3, tab4 = st.tabs(["📝 シーズンポイント入力", "🏷️ チーム名管理", "🏢 チーム管理", "📋 データ確認"])
+tab1, tab2, tab3 = st.tabs(["📝 シーズンポイント入力", "🏢 チーム管理", "📋 データ確認"])
 
 # チーム情報を取得
 teams_df = get_teams()
@@ -116,68 +118,8 @@ with tab1:
         conn.close()
         st.success(f"{bulk_season}シーズンのデータを一括登録しました")
 
-# ========== タブ2: チーム名管理 ==========
+# ========== タブ2: チーム管理 ==========
 with tab2:
-    st.subheader("シーズン別チーム名設定")
-    st.markdown("チーム名が変更された場合、ここで各シーズンのチーム名を設定できます。")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        name_team_name = st.selectbox("チーム", list(team_options.keys()), key="name_team")
-        name_team_id = team_options[name_team_name]
-    
-    with col2:
-        name_season = st.number_input("シーズン（年）", min_value=2018, max_value=2030, value=2024, key="name_season")
-    
-    new_team_name = st.text_input("このシーズンのチーム名", value=name_team_name)
-    
-    if st.button("チーム名を登録", key="add_team_name"):
-        if new_team_name:
-            conn = get_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute(
-                "SELECT id FROM team_names WHERE team_id = ? AND season = ?",
-                (name_team_id, name_season)
-            )
-            existing = cursor.fetchone()
-            
-            if existing:
-                cursor.execute(
-                    "UPDATE team_names SET team_name = ? WHERE team_id = ? AND season = ?",
-                    (new_team_name, name_team_id, name_season)
-                )
-                st.success(f"{name_season}シーズンのチーム名を更新しました")
-            else:
-                cursor.execute(
-                    "INSERT INTO team_names (team_id, season, team_name) VALUES (?, ?, ?)",
-                    (name_team_id, name_season, new_team_name)
-                )
-                st.success(f"{name_season}シーズンのチーム名を登録しました")
-            
-            conn.commit()
-            conn.close()
-        else:
-            st.warning("チーム名を入力してください")
-    
-    st.markdown("---")
-    st.subheader("チーム名履歴")
-    
-    all_names = get_all_team_names()
-    if not all_names.empty:
-        # チームごとにグループ化して表示
-        for team_id in all_names["team_id"].unique():
-            team_data = all_names[all_names["team_id"] == team_id]
-            current_name = get_current_team_name(team_id)
-            
-            with st.expander(f"{current_name} (ID: {team_id})"):
-                display = team_data[["season", "team_name"]].copy()
-                display.columns = ["シーズン", "チーム名"]
-                st.dataframe(display, use_container_width=True, hide_index=True)
-
-# ========== タブ3: チーム管理 ==========
-with tab3:
     st.subheader("チーム編集")
     
     edit_team_name = st.selectbox("編集するチーム", list(team_options.keys()), key="edit_team")
@@ -272,7 +214,7 @@ with tab3:
     st.subheader("登録チーム一覧")
     
     teams_display = get_teams_for_display()
-    st.dataframe(teams_display, use_container_width=True, hide_index=True)
+    st.dataframe(teams_display, hide_index=True)
     
     st.markdown("---")
     
@@ -293,8 +235,8 @@ with tab3:
         st.success(f"チーム「{delete_team_name}」を削除しました")
         st.rerun()
 
-# ========== タブ4: データ確認 ==========
-with tab4:
+# ========== タブ3: データ確認 ==========
+with tab3:
     st.subheader("シーズンポイントデータ")
     
     season_df = get_season_points()
@@ -309,7 +251,7 @@ with tab4:
             display_df = season_df
         
         display_df = display_df.sort_values(["season", "rank"], ascending=[False, True])
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        st.dataframe(display_df, hide_index=True)
         
         st.markdown("---")
         

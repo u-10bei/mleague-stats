@@ -19,6 +19,8 @@ st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ラン�
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
+st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
+st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
 
 st.title("📊 年度別ポイントランキング")
 
@@ -66,7 +68,7 @@ with col1:
         xaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=2)
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig)
 
 with col2:
     # 順位表
@@ -77,7 +79,7 @@ with col2:
     rank_df["ポイント"] = rank_df["ポイント"].apply(lambda x: f"{x:+.1f}")
     rank_df = rank_df.reset_index(drop=True)
     
-    st.dataframe(rank_df, use_container_width=True, hide_index=True)
+    st.dataframe(rank_df, hide_index=True)
 
 st.markdown("---")
 
@@ -119,7 +121,7 @@ fig2.update_layout(
     )
 )
 
-st.plotly_chart(fig2, use_container_width=True)
+st.plotly_chart(fig2)
 
 st.markdown("---")
 st.caption("※ データはサンプルです。実際のMリーグ公式記録とは異なる場合があります。")
