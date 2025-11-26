@@ -19,6 +19,7 @@ st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積�
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
+st.sidebar.page_link("pages/9_team_master_admin.py", label="🏢 チーム管理")
 st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
 st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
 
