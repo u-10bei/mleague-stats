@@ -69,42 +69,104 @@ if teams_df.empty:
     st.stop()
 
 # 既存データを取得
-existing_data = get_season_data(selected_season)
+conn = get_connection()
+existing_query = f"""
+SELECT 
+    sp.team_id,
+    tn.team_name,
+    sp.points,
+    COALESCE(sp.penalty, 0) as penalty,
+    sp.rank
+FROM team_season_points sp
+JOIN team_names tn ON sp.team_id = tn.team_id AND sp.season = tn.season
+WHERE sp.season = {selected_season}
+ORDER BY sp.rank
+"""
+existing_data = pd.read_sql_query(existing_query, conn)
+
+# 既存データを辞書形式で保持（team_idをキーに）
+existing_dict = {}
+if not existing_data.empty:
+    for _, row in existing_data.iterrows():
+        existing_dict[row['team_id']] = {
+            'points': float(row['points']),
+            'penalty': float(row['penalty'])
+        }
+
+conn.close()
 
 # データ入力フォーム
 st.subheader(f"{selected_season}年度 チームポイント入力")
 
-with st.form("team_points_form"):
+st.info("""
+💡 **ペナルティについて**
+- ペナルティは反則時に獲得ポイントから減算される値です
+- マイナス値で入力してください（例: -10.0）
+- 最終ポイント = 獲得ポイント - ペナルティ
+""")
+
+with st.form(f"team_points_form_{selected_season}"):
     updated_data = []
     
     for _, team in teams_df.iterrows():
         team_id = team["team_id"]
         team_name = team["team_name"]
         
-        # 既存データから現在のポイントを取得
-        current_point = 0
-        if not existing_data.empty:
-            existing_row = existing_data[existing_data["team_id"] == team_id]
-            if not existing_row.empty:
-                current_point = existing_row.iloc[0]["points"]
+        # 既存データから現在のポイントとペナルティを取得（デフォルト値として使用）
+        if team_id in existing_dict:
+            current_point = existing_dict[team_id]['points']
+            current_penalty = existing_dict[team_id]['penalty']
+        else:
+            current_point = 0.0
+            current_penalty = 0.0
         
-        col1, col2 = st.columns([2, 1])
+        st.markdown(f"### {team_name}")
+        
+        # 既存データがある場合は表示
+        if team_id in existing_dict:
+            st.caption(f"💾 既存データ: 最終pt={current_point:+.1f}, ペナルティ={current_penalty:.1f}")
+        
+        col1, col2, col3 = st.columns([2, 2, 2])
+        
         with col1:
-            st.write(f"**{team_name}**")
-        with col2:
             point = st.number_input(
-                f"{team_name}のポイント",
+                "最終ポイント",
+                min_value=-2000.0,
+                max_value=2000.0,
                 value=float(current_point),
                 step=0.1,
                 format="%.1f",
-                key=f"point_{team_id}",
-                label_visibility="collapsed"
+                key=f"point_{selected_season}_{team_id}",
+                help="ペナルティ適用後の最終ポイント"
             )
-            updated_data.append({
-                "team_id": team_id,
-                "team_name": team_name,
-                "points": point
-            })
+        
+        with col2:
+            penalty = st.number_input(
+                "ペナルティ",
+                min_value=-500.0,
+                max_value=0.0,
+                value=float(current_penalty),
+                step=0.1,
+                format="%.1f",
+                key=f"penalty_{selected_season}_{team_id}",
+                help="マイナス値で入力（例: -10.0）"
+            )
+        
+        with col3:
+            # 獲得ポイントを計算して表示
+            earned_points = point - penalty  # penaltyは負の値なので、引くと実質加算
+            st.metric(
+                "獲得ポイント",
+                f"{earned_points:+.1f}",
+                help="最終ポイント - ペナルティ"
+            )
+        
+        updated_data.append({
+            "team_id": team_id,
+            "team_name": team_name,
+            "points": point,
+            "penalty": penalty
+        })
     
     submitted = st.form_submit_button("💾 保存", type="primary")
     
@@ -117,9 +179,9 @@ with st.form("team_points_form"):
             sorted_data = sorted(updated_data, key=lambda x: x["points"], reverse=True)
             for rank, data in enumerate(sorted_data, start=1):
                 cursor.execute("""
-                    INSERT OR REPLACE INTO team_season_points (team_id, season, points, rank)
-                    VALUES (?, ?, ?, ?)
-                """, (data["team_id"], selected_season, data["points"], rank))
+                    INSERT OR REPLACE INTO team_season_points (team_id, season, points, penalty, rank)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (data["team_id"], selected_season, data["points"], data["penalty"], rank))
             
             conn.commit()
             conn.close()
@@ -135,9 +197,21 @@ st.subheader("現在のデータ")
 
 if not existing_data.empty:
     # 表示用にカラムを選択
-    display_data = existing_data[["team_name", "points"]].copy()
-    display_data.columns = ["チーム名", "ポイント"]
-    display_data = display_data.sort_values("ポイント", ascending=False).reset_index(drop=True)
+    display_data = existing_data[["team_name", "points", "penalty"]].copy()
+    
+    # 獲得ポイントを計算
+    display_data["earned_points"] = display_data["points"] - display_data["penalty"]
+    
+    # カラム名を変更
+    display_data.columns = ["チーム名", "最終ポイント", "ペナルティ", "獲得ポイント"]
+    
+    # ソート
+    display_data = display_data.sort_values("最終ポイント", ascending=False).reset_index(drop=True)
+    
+    # フォーマット
+    display_data["最終ポイント"] = display_data["最終ポイント"].apply(lambda x: f"{x:+.1f}")
+    display_data["ペナルティ"] = display_data["ペナルティ"].apply(lambda x: f"{x:.1f}" if x != 0 else "-")
+    display_data["獲得ポイント"] = display_data["獲得ポイント"].apply(lambda x: f"{x:+.1f}")
     
     st.dataframe(display_data, width="stretch")
     
@@ -145,29 +219,47 @@ if not existing_data.empty:
     st.markdown("---")
     st.subheader("🔍 データ整合性チェック")
     
-    total_points = display_data["ポイント"].sum()
-    num_teams = len(display_data)
+    # ペナルティを考慮した計算
+    total_points = existing_data["points"].sum()
+    total_penalty = existing_data["penalty"].sum()
+    total_earned = total_points - total_penalty
+    num_teams = len(existing_data)
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("参加チーム数", f"{num_teams}チーム")
     with col2:
-        st.metric("合計ポイント", f"{total_points:,.1f}")
+        st.metric("最終ポイント合計", f"{total_points:,.1f}")
     with col3:
-        # チームポイント制の合計は通常0になるはず（±が打ち消し合う）
-        if abs(total_points) < 0.1:
-            st.success("✅ 正常")
-        elif abs(total_points) < 1.0:
-            st.warning(f"⚠️ 誤差: {total_points:+.1f}")
-        else:
-            st.error(f"❌ 異常値: {total_points:+.1f}")
+        st.metric("ペナルティ合計", f"{total_penalty:,.1f}")
+    with col4:
+        st.metric("獲得ポイント合計", f"{total_earned:,.1f}")
     
-    # 詳細情報
-    if abs(total_points) > 0.1:
+    # 最終ポイントの合計チェック
+    if abs(total_points) < 0.1:
+        st.success("✅ 最終ポイント合計: 正常")
+    elif abs(total_points) < 1.0:
+        st.warning(f"⚠️ 最終ポイント合計に誤差: {total_points:+.1f}")
+    else:
+        st.error(f"❌ 最終ポイント合計が異常値: {total_points:+.1f}")
+    
+    # ペナルティがある場合の説明
+    if total_penalty != 0:
+        st.info(f"""
+        **💡 ペナルティの影響**
+        
+        - 獲得ポイント合計: {total_earned:+.1f} pt
+        - ペナルティ合計: {total_penalty:+.1f} pt
+        - 最終ポイント合計: {total_points:+.1f} pt
+        
+        ペナルティがない場合、獲得ポイント合計は0になります。
+        ペナルティがある場合、最終ポイント合計にペナルティ分が反映されます。
+        """)
+    else:
         st.info("""
         **ℹ️ 注意事項**
         
-        Mリーグのチームポイント制では、全チームの合計ポイントは通常0になります。
+        Mリーグのチームポイント制では、全チームの最終ポイント合計は通常0になります。
         合計がプラスまたはマイナスの場合、入力ミスの可能性があります。
         """)
 else:
