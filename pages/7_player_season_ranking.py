@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import sys
 sys.path.append("..")
-from db import get_player_seasons, get_player_season_ranking, get_player_all_stats, hide_default_sidebar_navigation
+from db import get_player_seasons, get_player_season_ranking, get_connection, hide_default_sidebar_navigation
 
 st.set_page_config(
     page_title="年度別選手ランキング | Mリーグダッシュボード",
@@ -20,10 +20,11 @@ st.sidebar.page_link("app.py", label="🏠 トップページ")
 st.sidebar.markdown("### 📊 チーム成績")
 st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
+st.sidebar.page_link("pages/10_team_game_analysis.py", label="🎲 半荘別分析")
 st.sidebar.markdown("### 👤 選手成績")
 st.sidebar.page_link("pages/7_player_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/12_game_results_analysis.py", label="📈 半荘別成績分析")
+st.sidebar.page_link("pages/13_player_game_analysis.py", label="🎲 半荘別分析")
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
@@ -164,51 +165,82 @@ st.markdown(f"**表示件数: {len(filtered_df)}名**")
 
 st.markdown("---")
 
-# 全シーズン順位推移グラフ
-st.subheader("📈 全シーズン順位推移（ポイント順位）")
+# 月別ランキング
+st.subheader(f"📅 {selected_season}シーズン 月別ランキング")
 
-all_stats = get_player_all_stats()
+conn = get_connection()
+cursor = conn.cursor()
 
-if not all_stats.empty:
-    # 各シーズンでの順位を計算
-    all_stats['season_rank'] = all_stats.groupby('season')['points'].rank(ascending=False, method='min')
+# 半荘記録の存在確認
+cursor.execute("""
+    SELECT COUNT(*) 
+    FROM game_results 
+    WHERE season = ?
+""", (selected_season,))
+
+game_count = cursor.fetchone()[0]
+
+if game_count > 0:
+    # 半荘記録から選手別月別成績を取得
+    query = """
+        SELECT 
+            strftime('%Y-%m', gr.game_date) as month,
+            gr.player_id,
+            p.player_name,
+            SUM(gr.points) as total_points,
+            COUNT(*) as games,
+            AVG(gr.rank) as avg_rank,
+            SUM(CASE WHEN gr.rank = 1 THEN 1 ELSE 0 END) as rank_1st,
+            SUM(CASE WHEN gr.rank = 2 THEN 1 ELSE 0 END) as rank_2nd,
+            SUM(CASE WHEN gr.rank = 3 THEN 1 ELSE 0 END) as rank_3rd,
+            SUM(CASE WHEN gr.rank = 4 THEN 1 ELSE 0 END) as rank_4th
+        FROM game_results gr
+        JOIN players p ON gr.player_id = p.player_id
+        WHERE gr.season = ?
+        GROUP BY month, gr.player_id, p.player_name
+        ORDER BY month, total_points DESC
+    """
     
-    # 上位10名の選手を取得（最新シーズンの順位から）
-    latest_season = seasons[0]
-    top_players = season_df.head(10)['player_id'].tolist()
+    df = pd.read_sql_query(query, conn, params=(selected_season,))
+    conn.close()
     
-    # グラフ作成
-    fig2 = go.Figure()
-    
-    for player_id in top_players:
-        player_data = all_stats[all_stats['player_id'] == player_id]
-        if not player_data.empty:
-            player_name = player_data.iloc[0]['player_name']
-            fig2.add_trace(go.Scatter(
-                x=player_data['season'],
-                y=player_data['season_rank'],
-                mode='lines+markers',
-                name=player_name,
-                line=dict(width=2),
-                marker=dict(size=8)
-            ))
-    
-    fig2.update_layout(
-        title="選手別順位推移（現シーズン上位10名）",
-        xaxis_title="シーズン",
-        yaxis_title="順位",
-        yaxis=dict(autorange="reversed", dtick=5),
-        height=500,
-        legend=dict(
-            orientation="v",
-            yanchor="top",
-            y=1,
-            xanchor="left",
-            x=1.02
-        )
-    )
-    
-    st.plotly_chart(fig2, width="stretch")
+    if not df.empty:
+        months = sorted(df['month'].unique())
+        
+        st.markdown("### 月別ランキング（累積ポイント順）")
+        
+        for month in months:
+            with st.expander(f"📅 {month}", expanded=False):
+                month_df = df[df['month'] == month].copy()
+                
+                # 累積ポイント順に並べる
+                month_df = month_df.sort_values('total_points', ascending=False)
+                month_df.insert(0, '順位', range(1, len(month_df) + 1))
+                
+                # 1位率を計算
+                month_df['first_rate'] = (month_df['rank_1st'] / month_df['games'] * 100).round(1)
+                
+                # 表示用に整形
+                display_df = month_df[[
+                    '順位', 'player_name', 'total_points', 'games', 'avg_rank',
+                    'rank_1st', 'rank_2nd', 'rank_3rd', 'rank_4th', 'first_rate'
+                ]].copy()
+                
+                display_df.columns = [
+                    '順位', '選手名', '累積pt', '対局数', '平均順位',
+                    '1位', '2位', '3位', '4位', '1位率(%)'
+                ]
+                
+                display_df['累積pt'] = display_df['累積pt'].apply(lambda x: f"{x:+.1f}")
+                display_df['平均順位'] = display_df['平均順位'].apply(lambda x: f"{x:.2f}")
+                display_df['1位率(%)'] = display_df['1位率(%)'].apply(lambda x: f"{x:.1f}")
+                
+                st.dataframe(display_df, width='stretch', hide_index=True, height=400)
+    else:
+        st.info(f"{selected_season}シーズンの半荘記録がありません。")
+else:
+    st.info(f"{selected_season}シーズンの半荘記録がありません。「🎮 半荘記録入力」ページで対局結果を記録してください。")
+    conn.close()
 
 st.markdown("---")
 st.caption("※ データはデータベースに登録された情報を表示しています。")
