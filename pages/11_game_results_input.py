@@ -18,11 +18,14 @@ st.sidebar.page_link("app.py", label="🏠 トップページ")
 st.sidebar.markdown("### 📊 チーム成績")
 st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/10_team_game_analysis.py", label="🎲 半荘別分析")
+st.sidebar.page_link("pages/10_team_game_analysis.py", label="📈 半荘別分析")
 st.sidebar.markdown("### 👤 選手成績")
 st.sidebar.page_link("pages/7_player_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/13_player_game_analysis.py", label="🎲 半荘別分析")
+st.sidebar.page_link("pages/13_player_game_analysis.py", label="📈 半荘別分析")
+st.sidebar.markdown("---")
+st.sidebar.page_link("pages/14_statistical_analysis.py", label="📈 統計分析")
+st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
@@ -46,6 +49,10 @@ tab_new, tab_edit = st.tabs(["📝 新規入力", "✏️ データ編集"])
 
 # ========== 新規入力タブ ==========
 with tab_new:
+    # セッション状態の初期化（フォームリセット用）
+    if 'form_counter' not in st.session_state:
+        st.session_state.form_counter = 0
+    
     st.markdown("---")
     st.subheader("📅 対局情報")
     
@@ -61,56 +68,90 @@ with tab_new:
         conn.close()
         st.stop()
     
+    # 最新の対局データから初期値を取得
+    cursor.execute("""
+        SELECT season, game_date, table_type, game_number, start_time, end_time
+        FROM game_results
+        ORDER BY game_date DESC, game_number DESC
+        LIMIT 1
+    """)
+    last_game = cursor.fetchone()
+    
+    if last_game:
+        default_season_idx = seasons.index(last_game[0]) if last_game[0] in seasons else 0
+        default_date = datetime.strptime(last_game[1], "%Y-%m-%d").date()
+        default_table_type_idx = ["レギュラー", "セミファイナル", "ファイナル", "その他"].index(last_game[2]) if last_game[2] in ["レギュラー", "セミファイナル", "ファイナル", "その他"] else 0
+        default_game_number = last_game[3]
+    else:
+        last_game = None
+        default_season_idx = 0
+        default_date = date.today()
+        default_table_type_idx = 0
+        default_game_number = 1
+    
+    conn.close()
+    
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        selected_season = st.selectbox("シーズン", seasons, key="new_season_select")
+        selected_season = st.selectbox("シーズン", seasons, index=default_season_idx, key="new_season_select")
     
     with col2:
         game_date = st.date_input(
             "対局日",
-            value=date.today(),
+            value=default_date,
             key="new_game_date"
         )
     
     with col3:
         table_types = ["レギュラー", "セミファイナル", "ファイナル", "その他"]
-        table_type = st.selectbox("卓区分", table_types, key="new_table_type")
+        table_type = st.selectbox("卓区分", table_types, index=default_table_type_idx, key="new_table_type")
     
     with col4:
         game_number = st.number_input(
             "対局番号",
             min_value=1,
             max_value=100,
-            value=1,
+            value=default_game_number,
             help="同じ日に複数対局がある場合の識別番号",
             key="new_game_number"
         )
     
-    # 開始・終了時間の入力
+    # 開始・終了時間の入力（テキスト入力）
     col_time1, col_time2 = st.columns(2)
     
+    # デフォルト値の準備（前回の最終データから）
+    if last_game:
+        default_start_str = last_game[4] if last_game[4] else ""
+        default_end_str = last_game[5] if last_game[5] else ""
+    else:
+        default_start_str = ""
+        default_end_str = ""
+    
     with col_time1:
-        start_time = st.text_input(
+        start_time_str = st.text_input(
             "開始時間",
-            value="",
+            value=default_start_str,
             placeholder="例: 19:00",
             key="new_start_time",
             help="対局開始時刻（任意・HH:MM形式）"
         )
     
     with col_time2:
-        end_time = st.text_input(
+        end_time_str = st.text_input(
             "終了時間",
-            value="",
+            value=default_end_str,
             placeholder="例: 20:30",
             key="new_end_time",
             help="対局終了時刻（任意・HH:MM形式）"
         )
     
     # ========== 選手選択肢の取得 ==========
+    conn = get_connection()
+    cursor = conn.cursor()
+    
     cursor.execute("""
-        SELECT DISTINCT p.player_id, p.player_name, tn.team_name
+        SELECT DISTINCT p.player_id, p.player_name, pt.team_id, tn.team_name
         FROM players p
         JOIN player_teams pt ON p.player_id = pt.player_id
         JOIN team_names tn ON pt.team_id = tn.team_id AND pt.season = tn.season
@@ -125,12 +166,21 @@ with tab_new:
         st.warning(f"{selected_season}シーズンに所属している選手がいません。")
         st.stop()
     
-    # 選手リストを作成（チーム名付き）
-    player_options = {
-        f"{row[1]} ({row[2]})": row[0]
-        for row in players_data
-    }
-    player_display_names = list(player_options.keys())
+    # チームと選手のデータを整理
+    teams_dict = {}  # {team_id: team_name}
+    team_players = {}  # {team_id: [(player_id, player_name), ...]}
+    
+    for player_id, player_name, team_id, team_name in players_data:
+        # チーム情報を登録
+        if team_id not in teams_dict:
+            teams_dict[team_id] = team_name
+            team_players[team_id] = []
+        
+        # 選手をチームに登録
+        team_players[team_id].append((player_id, player_name))
+    
+    # チームリスト（表示用）
+    team_list = [(team_id, teams_dict[team_id]) for team_id in sorted(teams_dict.keys())]
     
     # ========== 対局結果入力 ==========
     st.markdown("---")
@@ -139,114 +189,171 @@ with tab_new:
     st.info("""
     💡 **入力のポイント**
     - 4名全員のデータを入力してください
+    - 各席で「チーム」を選択し、その後「選手」を選択します
     - 席は東・南・西・北の順で固定
     - 獲得ポイントの合計は0になるように入力
-    - 順位は1〜4で重複なし
+    - 順位は獲得ポイントから自動計算されます（同点は同着）
+    - Enterキーを押してもフォームは送信されません
     """)
     
     # 席の固定順序
     seat_names = ["東", "南", "西", "北"]
     
-    # 4名分の入力フォーム
-    with st.form(f"new_game_results_form"):
-        st.markdown("### 対局者")
+    # セッション状態で入力値を管理（リセット用）
+    current_form_id = f"form_{st.session_state.form_counter}"
+    if 'current_form_id' not in st.session_state or st.session_state.current_form_id != current_form_id:
+        st.session_state.current_form_id = current_form_id
+        st.session_state.new_teams = [0, 0, 0, 0]  # 各席のチーム選択インデックス
+        st.session_state.new_players = [0, 0, 0, 0]  # 各席の選手選択インデックス
+        st.session_state.new_points = [0.0, 0.0, 0.0, 0.0]
+    
+    st.markdown("### 対局者")
+    
+    # ヘッダー行（順位欄を削除）
+    header_cols = st.columns([1, 2, 2, 2])
+    header_cols[0].markdown("**席**")
+    header_cols[1].markdown("**チーム**")
+    header_cols[2].markdown("**選手名**")
+    header_cols[3].markdown("**獲得pt**")
+    
+    # 4名分の入力行（席は固定）
+    game_data = []
+    points_list = []
+    
+    for i, seat in enumerate(seat_names):
+        cols = st.columns([1, 2, 2, 2])
         
-        # ヘッダー行
-        header_cols = st.columns([1, 3, 1.5, 1.5])
-        header_cols[0].markdown("**席**")
-        header_cols[1].markdown("**選手名**")
-        header_cols[2].markdown("**獲得pt**")
-        header_cols[3].markdown("**順位**")
+        # 席名を固定表示
+        with cols[0]:
+            st.markdown(f"**{seat}**")
         
-        # 4名分の入力行（席は固定）
-        game_data = []
+        # チーム選択
+        with cols[1]:
+            team_idx = st.selectbox(
+                f"チーム{i+1}",
+                range(len(team_list)),
+                format_func=lambda x: team_list[x][1],
+                index=st.session_state.new_teams[i],
+                key=f"new_team_{i}_{st.session_state.form_counter}",
+                label_visibility="collapsed"
+            )
+            st.session_state.new_teams[i] = team_idx
+            selected_team_id = team_list[team_idx][0]
         
-        for i, seat in enumerate(seat_names):
-            cols = st.columns([1, 3, 1.5, 1.5])
+        # 選択されたチームの選手リスト
+        team_player_list = team_players[selected_team_id]
+        
+        # 選手選択
+        with cols[2]:
+            # 選手インデックスが範囲外の場合は0にリセット
+            if st.session_state.new_players[i] >= len(team_player_list):
+                st.session_state.new_players[i] = 0
             
-            # 席名を固定表示
-            with cols[0]:
-                st.markdown(f"**{seat}**")
-            
-            with cols[1]:
-                player = st.selectbox(
-                    f"選手{i+1}",
-                    player_display_names,
-                    key=f"new_player_{i}",
-                    label_visibility="collapsed"
-                )
-            
-            with cols[2]:
-                points = st.number_input(
-                    f"ポイント{i+1}",
-                    min_value=-100.0,
-                    max_value=100.0,
-                    value=0.0,
-                    step=0.1,
-                    format="%.1f",
-                    key=f"new_points_{i}",
-                    label_visibility="collapsed"
-                )
-            
-            with cols[3]:
-                rank = st.number_input(
-                    f"順位{i+1}",
-                    min_value=1,
-                    max_value=4,
-                    value=i+1,
-                    key=f"new_rank_{i}",
-                    label_visibility="collapsed"
-                )
-            
-            game_data.append({
-                'seat': seat,
-                'player_name': player,
-                'player_id': player_options[player],
-                'points': points,
-                'rank': rank
-            })
+            player_idx = st.selectbox(
+                f"選手{i+1}",
+                range(len(team_player_list)),
+                format_func=lambda x: team_player_list[x][1],
+                index=st.session_state.new_players[i],
+                key=f"new_player_{i}_{st.session_state.form_counter}",
+                label_visibility="collapsed"
+            )
+            st.session_state.new_players[i] = player_idx
+            selected_player = team_player_list[player_idx]
         
-        # データ検証
-        st.markdown("---")
-        st.markdown("### データチェック")
+        # ポイント入力
+        with cols[3]:
+            points = st.number_input(
+                f"ポイント{i+1}",
+                min_value=-100.0,
+                max_value=100.0,
+                value=st.session_state.new_points[i],
+                step=0.1,
+                format="%.1f",
+                key=f"new_points_{i}_{st.session_state.form_counter}",
+                label_visibility="collapsed"
+            )
+            st.session_state.new_points[i] = points
         
-        col1, col2 = st.columns(2)
+        points_list.append(points)
         
-        # ポイント合計のチェック
-        total_points = sum(d['points'] for d in game_data)
-        with col1:
-            if abs(total_points) < 0.1:
-                st.success(f"✅ ポイント合計: {total_points:.1f}")
-            else:
-                st.error(f"❌ ポイント合計: {total_points:.1f} (0でありません)")
+        game_data.append({
+            'seat': seat,
+            'player_name': selected_player[1],
+            'player_id': selected_player[0],
+            'points': points,
+            'rank': 0  # 後で計算
+        })
+    
+    # 順位を自動計算（獲得ポイントの高い順、同点は同着）
+    # ポイントでソートし、同じポイントには同じ順位を付与
+    points_with_indices = [(points_list[i], i) for i in range(4)]
+    points_with_indices.sort(key=lambda x: x[0], reverse=True)
+    
+    current_rank = 1
+    prev_points = None
+    skip_count = 0
+    
+    for points, idx in points_with_indices:
+        if prev_points is not None and points < prev_points:
+            # ポイントが異なる場合、順位を更新（同着分スキップ）
+            current_rank += skip_count
+            skip_count = 1
+        else:
+            # ポイントが同じ場合は同着
+            skip_count += 1
         
-        # 順位の重複チェック
-        ranks = [d['rank'] for d in game_data]
-        with col2:
-            if len(ranks) == len(set(ranks)) and set(ranks) == {1, 2, 3, 4}:
-                st.success("✅ 順位: 1-4 (重複なし)")
-            else:
-                st.error("❌ 順位: 重複または不正な値があります")
-        
-        # 保存ボタン
-        st.markdown("---")
-        submitted = st.form_submit_button("💾 保存", use_container_width=True)
-        
-        if submitted:
-            # バリデーション
+        game_data[idx]['rank'] = current_rank
+        prev_points = points
+    
+    # データ検証
+    st.markdown("---")
+    st.markdown("### データチェック")
+    
+    col1, col2 = st.columns(2)
+    
+    # ポイント合計のチェック
+    total_points = sum(d['points'] for d in game_data)
+    with col1:
+        if abs(total_points) < 0.1:
+            st.success(f"✅ ポイント合計: {total_points:.1f}")
+        else:
+            st.error(f"❌ ポイント合計: {total_points:.1f} (0でありません)")
+    
+    # 自動計算された順位を表示
+    with col2:
+        st.success("✅ 順位: 自動計算完了")
+    
+    # 計算された順位を表形式で表示
+    st.markdown("#### 計算された順位")
+    rank_display_data = []
+    for data in game_data:
+        rank_display_data.append({
+            '席': data['seat'],
+            '選手名': data['player_name'],
+            '獲得pt': f"{data['points']:+.1f}",
+            '順位': f"{data['rank']}位"
+        })
+    rank_df = pd.DataFrame(rank_display_data)
+    st.dataframe(rank_df, hide_index=True, width='stretch')
+    
+    # 保存ボタンとリセットボタン
+    st.markdown("---")
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        if st.button("💾 保存", type="primary", key=f"save_button_{st.session_state.form_counter}"):
+            # バリデーション（ポイント合計のみチェック）
             if abs(total_points) >= 0.1:
                 st.error("❌ ポイント合計が0ではありません。修正してください。")
-            elif len(ranks) != len(set(ranks)) or set(ranks) != {1, 2, 3, 4}:
-                st.error("❌ 順位に重複または不正な値があります。修正してください。")
             else:
                 # データベースに保存
                 try:
                     conn = get_connection()
                     cursor = conn.cursor()
                     
-                    # 時間をフォーマット
-                    start_time_str = start_time.strip() if start_time.strip() else None
-                    end_time_str = end_time.strip() if end_time.strip() else None
+                    # 時間をフォーマット（テキスト入力そのまま使用）
+                    start_time_db = start_time_str.strip() if start_time_str.strip() else None
+                    end_time_db = end_time_str.strip() if end_time_str.strip() else None
                     
                     # 4名分のデータを挿入
                     for data in game_data:
@@ -265,20 +372,29 @@ with tab_new:
                             data['player_id'],
                             data['points'],
                             data['rank'],
-                            start_time_str,
-                            end_time_str
+                            start_time_db,
+                            end_time_db
                         ))
                     
                     conn.commit()
                     conn.close()
                     
                     st.success("✅ 対局結果を保存しました")
+                    
+                    # フォームカウンターをインクリメント（自動的にセッション状態がリセットされる）
+                    st.session_state.form_counter += 1
                     st.rerun()
                     
                 except Exception as e:
                     st.error(f"❌ エラーが発生しました: {str(e)}")
                     if 'conn' in locals():
                         conn.close()
+    
+    with col2:
+        if st.button("🔄 リセット", key=f"reset_button_{st.session_state.form_counter}"):
+            # フォームカウンターをインクリメントしてリセット
+            st.session_state.form_counter += 1
+            st.rerun()
 
     # ========== 最近の対局一覧 ==========
     st.markdown("---")
@@ -351,6 +467,7 @@ with tab_new:
         st.info(f"📊 {selected_season}シーズン: {total_games}対局 / {total_records}記録")
     else:
         st.info(f"{selected_season}シーズンの対局記録がまだありません。")
+
 
 # ========== データ編集タブ ==========
 with tab_edit:
@@ -512,22 +629,22 @@ with tab_edit:
         time_col1, time_col2 = st.columns(2)
         
         # 既存の時間を取得（最初のレコードから）
-        existing_start_time = game_records[0][6] if game_records[0][6] else ""
-        existing_end_time = game_records[0][7] if game_records[0][7] else ""
+        existing_start_str = game_records[0][6] if game_records[0][6] else ""
+        existing_end_str = game_records[0][7] if game_records[0][7] else ""
         
         with time_col1:
-            edit_start_time = st.text_input(
+            edit_start_time_str = st.text_input(
                 "開始時間",
-                value=existing_start_time,
+                value=existing_start_str,
                 placeholder="例: 19:00",
                 key=f"edit_start_time_{selected_game_index}",
                 help="対局開始時刻（任意・HH:MM形式）"
             )
         
         with time_col2:
-            edit_end_time = st.text_input(
+            edit_end_time_str = st.text_input(
                 "終了時間",
-                value=existing_end_time,
+                value=existing_end_str,
                 placeholder="例: 20:30",
                 key=f"edit_end_time_{selected_game_index}",
                 help="対局終了時刻（任意・HH:MM形式）"
@@ -545,6 +662,7 @@ with tab_edit:
         
         # 編集データ
         edit_game_data = []
+        edit_points_list = []
         
         for i, record in enumerate(game_records):
             record_id = record[0]
@@ -590,15 +708,11 @@ with tab_edit:
                     label_visibility="collapsed"
                 )
             
+            edit_points_list.append(edited_points)
+            
+            # 順位は後で自動計算するため、一旦プレースホルダー
             with cols[3]:
-                edited_rank = st.number_input(
-                    f"順位{i+1}",
-                    min_value=1,
-                    max_value=4,
-                    value=int(rank),
-                    key=f"edit_rank_{i}_{selected_game_index}",
-                    label_visibility="collapsed"
-                )
+                st.markdown(f"<div style='text-align: center; padding: 8px;'>-</div>", unsafe_allow_html=True)
             
             edit_game_data.append({
                 'id': record_id,
@@ -606,8 +720,28 @@ with tab_edit:
                 'player_name': edited_player,
                 'player_id': edit_player_options[edited_player],
                 'points': edited_points,
-                'rank': edited_rank
+                'rank': 0  # 後で計算
             })
+        
+        # 順位を自動計算（獲得ポイントの高い順、同点は同着）
+        points_with_indices = [(edit_points_list[i], i) for i in range(4)]
+        points_with_indices.sort(key=lambda x: x[0], reverse=True)
+        
+        current_rank = 1
+        prev_points = None
+        skip_count = 0
+        
+        for points, idx in points_with_indices:
+            if prev_points is not None and points < prev_points:
+                # ポイントが異なる場合、順位を更新（同着分スキップ）
+                current_rank += skip_count
+                skip_count = 1
+            else:
+                # ポイントが同じ場合は同着
+                skip_count += 1
+            
+            edit_game_data[idx]['rank'] = current_rank
+            prev_points = points
         
         # データ検証
         st.markdown("---")
@@ -622,37 +756,45 @@ with tab_edit:
             else:
                 st.error(f"❌ ポイント合計: {edit_total_points:.1f} (0でありません)")
         
-        edit_ranks = [d['rank'] for d in edit_game_data]
+        # 自動計算された順位を表示
         with col2:
-            if len(edit_ranks) == len(set(edit_ranks)) and set(edit_ranks) == {1, 2, 3, 4}:
-                st.success("✅ 順位: 1-4 (重複なし)")
-            else:
-                st.error("❌ 順位: 重複または不正な値があります")
+            st.success("✅ 順位: 自動計算完了")
+        
+        # 計算された順位を表形式で表示
+        st.markdown("#### 計算された順位")
+        edit_rank_display_data = []
+        for data in edit_game_data:
+            edit_rank_display_data.append({
+                '席': data['seat'],
+                '選手名': data['player_name'],
+                '獲得pt': f"{data['points']:+.1f}",
+                '順位': f"{data['rank']}位"
+            })
+        edit_rank_df = pd.DataFrame(edit_rank_display_data)
+        st.dataframe(edit_rank_df, hide_index=True, width='stretch')
         
         # ボタン
         st.markdown("---")
         col_btn1, col_btn2 = st.columns(2)
         
         with col_btn1:
-            update_submitted = st.form_submit_button("💾 更新", use_container_width=True)
+            update_submitted = st.form_submit_button("💾 更新")
         
         with col_btn2:
-            delete_submitted = st.form_submit_button("🗑️ 削除", use_container_width=True, type="secondary")
+            delete_submitted = st.form_submit_button("🗑️ 削除", type="secondary")
         
         if update_submitted:
-            # バリデーション
+            # バリデーション（ポイント合計のみチェック）
             if abs(edit_total_points) >= 0.1:
                 st.error("❌ ポイント合計が0ではありません。修正してください。")
-            elif len(edit_ranks) != len(set(edit_ranks)) or set(edit_ranks) != {1, 2, 3, 4}:
-                st.error("❌ 順位に重複または不正な値があります。修正してください。")
             else:
                 try:
                     conn = get_connection()
                     cursor = conn.cursor()
                     
-                    # 時間をフォーマット
-                    start_time_str = edit_start_time.strip() if edit_start_time.strip() else None
-                    end_time_str = edit_end_time.strip() if edit_end_time.strip() else None
+                    # 時間をフォーマット（テキスト入力そのまま使用）
+                    start_time_db = edit_start_time_str.strip() if edit_start_time_str.strip() else None
+                    end_time_db = edit_end_time_str.strip() if edit_end_time_str.strip() else None
                     
                     # 4名分のデータを更新
                     for data in edit_game_data:
@@ -676,8 +818,8 @@ with tab_edit:
                             data['player_id'],
                             data['points'],
                             data['rank'],
-                            start_time_str,
-                            end_time_str,
+                            start_time_db,
+                            end_time_db,
                             data['id']
                         ))
                     

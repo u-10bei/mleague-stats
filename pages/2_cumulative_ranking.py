@@ -20,11 +20,14 @@ st.sidebar.page_link("app.py", label="🏠 トップページ")
 st.sidebar.markdown("### 📊 チーム成績")
 st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/10_team_game_analysis.py", label="🎲 半荘別分析")
+st.sidebar.page_link("pages/10_team_game_analysis.py", label="📈 半荘別分析")
 st.sidebar.markdown("### 👤 選手成績")
 st.sidebar.page_link("pages/7_player_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/13_player_game_analysis.py", label="🎲 半荘別分析")
+st.sidebar.page_link("pages/13_player_game_analysis.py", label="📈 半荘別分析")
+st.sidebar.markdown("---")
+st.sidebar.page_link("pages/14_statistical_analysis.py", label="📈 統計分析")
+st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
@@ -294,6 +297,171 @@ if game_count > 0:
 else:
     st.info("半荘記録がありません。「🎮 半荘記録入力」ページで対局結果を記録してください。")
     conn.close()
+
+st.markdown("---")
+
+# 席順別統計
+st.subheader("🧭 席順別統計（全期間）")
+
+conn = get_connection()
+cursor = conn.cursor()
+
+# 半荘記録の存在確認
+cursor.execute("SELECT COUNT(*) FROM game_results")
+game_count = cursor.fetchone()[0]
+
+if game_count > 0:
+    # 席順別統計を取得（全期間）
+    query = """
+        SELECT 
+            gr.seat_name,
+            pt.team_id,
+            tn.team_name,
+            COUNT(*) as games,
+            SUM(gr.points) as total_points,
+            AVG(gr.points) as avg_points,
+            AVG(gr.rank) as avg_rank,
+            SUM(CASE WHEN gr.rank = 1 THEN 1 ELSE 0 END) as rank_1st,
+            SUM(CASE WHEN gr.rank = 2 THEN 1 ELSE 0 END) as rank_2nd,
+            SUM(CASE WHEN gr.rank = 3 THEN 1 ELSE 0 END) as rank_3rd,
+            SUM(CASE WHEN gr.rank = 4 THEN 1 ELSE 0 END) as rank_4th
+        FROM game_results gr
+        JOIN player_teams pt ON gr.player_id = pt.player_id AND gr.season = pt.season
+        JOIN team_names tn ON pt.team_id = tn.team_id AND pt.season = tn.season
+        GROUP BY gr.seat_name, pt.team_id
+        ORDER BY gr.seat_name, total_points DESC
+    """
+    
+    seat_df = pd.read_sql_query(query, conn)
+    
+    if not seat_df.empty:
+        # 最新のチーム名を取得
+        latest_names_dict = cumulative_df.set_index("team_id")["team_name"].to_dict()
+        seat_df['team_name'] = seat_df['team_id'].map(latest_names_dict)
+        
+        seats = ['東', '南', '西', '北']
+        
+        for seat in seats:
+            with st.expander(f"🧭 {seat}家", expanded=False):
+                seat_data = seat_df[seat_df['seat_name'] == seat].copy()
+                
+                if not seat_data.empty:
+                    # 1位率を計算
+                    seat_data['first_rate'] = (seat_data['rank_1st'] / seat_data['games'] * 100).round(1)
+                    
+                    # 順位を追加
+                    seat_data = seat_data.sort_values('total_points', ascending=False)
+                    seat_data.insert(0, '順位', range(1, len(seat_data) + 1))
+                    
+                    # 表示用に整形
+                    display_df = seat_data[[
+                        '順位', 'team_name', 'games', 'total_points', 'avg_points',
+                        'avg_rank', 'rank_1st', 'rank_2nd', 'rank_3rd', 'rank_4th', 'first_rate'
+                    ]].copy()
+                    
+                    display_df.columns = [
+                        '順位', 'チーム名', '対局数', '累積pt', '平均pt',
+                        '平均順位', '1位', '2位', '3位', '4位', '1位率(%)'
+                    ]
+                    
+                    display_df['累積pt'] = display_df['累積pt'].apply(lambda x: f"{x:+.1f}")
+                    display_df['平均pt'] = display_df['平均pt'].apply(lambda x: f"{x:+.1f}")
+                    display_df['平均順位'] = display_df['平均順位'].apply(lambda x: f"{x:.2f}")
+                    display_df['1位率(%)'] = display_df['1位率(%)'].apply(lambda x: f"{x:.1f}")
+                    
+                    st.dataframe(display_df, width='stretch', hide_index=True, height=300)
+                else:
+                    st.info(f"{seat}家のデータがありません")
+    else:
+        st.info("席順別データがありません。")
+else:
+    st.info("半荘記録がありません。")
+
+conn.close()
+
+st.markdown("---")
+
+# 対局時間ランキング
+st.subheader("⏱️ 対局時間ランキング（全期間）")
+
+conn = get_connection()
+cursor = conn.cursor()
+
+# 対局時間データを取得（全期間）
+query = """
+    SELECT 
+        pt.team_id,
+        gr.game_date,
+        gr.game_number,
+        gr.start_time,
+        gr.end_time
+    FROM game_results gr
+    JOIN player_teams pt ON gr.player_id = pt.player_id AND gr.season = pt.season
+    WHERE gr.start_time IS NOT NULL AND gr.end_time IS NOT NULL
+"""
+
+time_df = pd.read_sql_query(query, conn)
+conn.close()
+
+if not time_df.empty:
+    # 対局時間（分）を計算
+    def calc_duration(row):
+        try:
+            start_parts = row['start_time'].split(':')
+            end_parts = row['end_time'].split(':')
+            start_minutes = int(start_parts[0]) * 60 + int(start_parts[1])
+            end_minutes = int(end_parts[0]) * 60 + int(end_parts[1])
+            duration = end_minutes - start_minutes
+            if duration < 0:
+                duration += 24 * 60  # 日付をまたぐ場合
+            return duration
+        except:
+            return None
+    
+    time_df['duration'] = time_df.apply(calc_duration, axis=1)
+    time_df = time_df[time_df['duration'].notna()]
+    
+    if not time_df.empty:
+        # チーム別の統計
+        team_time_stats = time_df.groupby('team_id').agg({
+            'duration': ['count', 'mean', 'min', 'max']
+        }).reset_index()
+        
+        team_time_stats.columns = ['team_id', 'games', 'avg_duration', 'min_duration', 'max_duration']
+        
+        # 最新のチーム名を追加
+        team_time_stats['team_name'] = team_time_stats['team_id'].map(latest_names_dict)
+        
+        # 平均時間でソート
+        team_time_stats = team_time_stats.sort_values('avg_duration', ascending=True)
+        team_time_stats.insert(0, '順位', range(1, len(team_time_stats) + 1))
+        
+        # 時間を時:分形式に変換
+        def format_duration(minutes):
+            hours = int(minutes // 60)
+            mins = int(minutes % 60)
+            return f"{hours}:{mins:02d}"
+        
+        # 表示用に整形
+        display_df = team_time_stats[[
+            '順位', 'team_name', 'games', 'avg_duration', 'min_duration', 'max_duration'
+        ]].copy()
+        
+        display_df.columns = [
+            '順位', 'チーム名', '対局数', '平均時間', '最短時間', '最長時間'
+        ]
+        
+        display_df['平均時間'] = display_df['平均時間'].apply(format_duration)
+        display_df['最短時間'] = display_df['最短時間'].apply(format_duration)
+        display_df['最長時間'] = display_df['最長時間'].apply(format_duration)
+        
+        st.dataframe(display_df, width='stretch', hide_index=True)
+        
+        st.info("💡 対局時間は「開始時間」から「終了時間」までの所要時間です。時間が記録されている対局のみが対象となります。")
+    else:
+        st.info("有効な対局時間データがありません。")
+else:
+    st.info("対局時間データがありません。「🎮 半荘記録入力」ページで開始・終了時間を記録してください。")
 
 st.markdown("---")
 st.caption("※ データはサンプルです。実際のMリーグ公式記録とは異なる場合があります。")

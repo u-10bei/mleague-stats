@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from datetime import datetime
 from db import get_connection, hide_default_sidebar_navigation
 
@@ -18,11 +19,14 @@ st.sidebar.page_link("app.py", label="🏠 トップページ")
 st.sidebar.markdown("### 📊 チーム成績")
 st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/10_team_game_analysis.py", label="🎲 半荘別分析")
+st.sidebar.page_link("pages/10_team_game_analysis.py", label="📈 半荘別分析")
 st.sidebar.markdown("### 👤 選手成績")
 st.sidebar.page_link("pages/7_player_season_ranking.py", label="📊 年度別ランキング")
 st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/13_player_game_analysis.py", label="🎲 半荘別分析")
+st.sidebar.page_link("pages/13_player_game_analysis.py", label="📈 半荘別分析")
+st.sidebar.markdown("---")
+st.sidebar.page_link("pages/14_statistical_analysis.py", label="📈 統計分析")
+st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
 st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
@@ -35,6 +39,7 @@ st.title("🎲 チーム半荘別分析")
 
 st.markdown("""
 半荘記録から各チームの成績を詳細に分析します。
+- 月別ランキング（累積ポイント推移・平均順位推移グラフ）
 - 席順別ランキング（累積ポイント・平均順位）
 - 試合番号別ランキング（累積ポイント・平均順位）
 - 直対ランキング（対チーム別の成績）
@@ -127,10 +132,172 @@ st.markdown("---")
 st.info(f"📊 データ件数: {len(df)}対局 / {df['team_name'].nunique()}チーム")
 
 # ========== タブ構成 ==========
-tab1, tab2, tab3 = st.tabs(["🧭 席順別", "🎮 試合番号別", "⚔️ 直対"])
+tab1, tab2, tab3, tab4 = st.tabs(["📅 月別", "🧭 席順別", "🎮 試合番号別", "⚔️ 直対"])
 
-# ========== タブ1: 席順別ランキング ==========
+# ========== タブ1: 月別ランキング ==========
 with tab1:
+    st.markdown("## 📅 月別ランキング")
+    
+    months = sorted(df['month'].unique())
+    
+    if len(months) == 0:
+        st.info("月別データがありません。")
+    else:
+        # チーム別・月別の累積データを計算
+        monthly_team_data = []
+        
+        for month in months:
+            month_df = df[df['month'] == month]
+            
+            # チームごとの統計
+            team_stats = month_df.groupby(['team_id', 'team_name']).agg({
+                'points': ['sum', 'mean', 'count'],
+                'rank': 'mean'
+            }).reset_index()
+            
+            team_stats.columns = ['team_id', 'team_name', 'cumulative_points', 'avg_points', 'games', 'avg_rank']
+            
+            for _, row in team_stats.iterrows():
+                monthly_team_data.append({
+                    'month': month,
+                    'team_id': row['team_id'],
+                    'team_name': row['team_name'],
+                    'cumulative_points': row['cumulative_points'],
+                    'avg_points': row['avg_points'],
+                    'games': row['games'],
+                    'avg_rank': row['avg_rank']
+                })
+        
+        monthly_df = pd.DataFrame(monthly_team_data)
+        
+        # タブで累積ポイントと平均順位を分ける
+        tab_cumulative, tab_avg_rank = st.tabs(["累積ポイント推移", "平均順位推移"])
+        
+        with tab_cumulative:
+            st.markdown("### 📈 月別累積ポイント推移")
+            
+            # 折れ線グラフ作成
+            fig1 = go.Figure()
+            
+            teams = monthly_df['team_name'].unique()
+            
+            for team_name in sorted(teams):
+                team_data = monthly_df[monthly_df['team_name'] == team_name].sort_values('month')
+                
+                fig1.add_trace(go.Scatter(
+                    x=team_data['month'],
+                    y=team_data['cumulative_points'],
+                    mode='lines+markers',
+                    name=team_name,
+                    line=dict(width=2),
+                    marker=dict(size=8),
+                    hovertemplate=(
+                        f'<b>{team_name}</b><br>' +
+                        '月: %{x}<br>' +
+                        '累積pt: %{y:+.1f}<br>' +
+                        '<extra></extra>'
+                    )
+                ))
+            
+            fig1.update_layout(
+                title="チーム別 月別累積ポイント推移",
+                xaxis_title="月",
+                yaxis_title="累積ポイント",
+                height=500,
+                hovermode='x unified',
+                legend=dict(
+                    orientation="v",
+                    yanchor="top",
+                    y=1,
+                    xanchor="left",
+                    x=1.02
+                ),
+                yaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=1)
+            )
+            
+            st.plotly_chart(fig1, use_container_width=True)
+            
+            # 統計サマリー
+            st.markdown("#### 📊 月別統計")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("対象月数", f"{len(months)}ヶ月")
+            
+            with col2:
+                total_games = monthly_df['games'].sum()
+                st.metric("総対局数", f"{int(total_games)}対局")
+            
+            with col3:
+                avg_games_per_month = total_games / len(months) if len(months) > 0 else 0
+                st.metric("月平均対局数", f"{avg_games_per_month:.1f}対局")
+        
+        with tab_avg_rank:
+            st.markdown("### 📈 月別平均順位推移")
+            
+            # 折れ線グラフ作成
+            fig2 = go.Figure()
+            
+            teams = monthly_df['team_name'].unique()
+            
+            for team_name in sorted(teams):
+                team_data = monthly_df[monthly_df['team_name'] == team_name].sort_values('month')
+                
+                fig2.add_trace(go.Scatter(
+                    x=team_data['month'],
+                    y=team_data['avg_rank'],
+                    mode='lines+markers',
+                    name=team_name,
+                    line=dict(width=2),
+                    marker=dict(size=8),
+                    hovertemplate=(
+                        f'<b>{team_name}</b><br>' +
+                        '月: %{x}<br>' +
+                        '平均順位: %{y:.2f}<br>' +
+                        '<extra></extra>'
+                    )
+                ))
+            
+            fig2.update_layout(
+                title="チーム別 月別平均順位推移",
+                xaxis_title="月",
+                yaxis_title="平均順位",
+                height=500,
+                hovermode='x unified',
+                legend=dict(
+                    orientation="v",
+                    yanchor="top",
+                    y=1,
+                    xanchor="left",
+                    x=1.02
+                ),
+                yaxis=dict(
+                    autorange="reversed",  # 順位は小さいほうが良い
+                    dtick=0.5,
+                    zeroline=False
+                )
+            )
+            
+            st.plotly_chart(fig2, use_container_width=True)
+            
+            # 最新月のランキング
+            st.markdown("#### 🏆 最新月のランキング")
+            
+            latest_month = months[-1]
+            latest_month_df = monthly_df[monthly_df['month'] == latest_month].sort_values('cumulative_points', ascending=False)
+            latest_month_df = latest_month_df.reset_index(drop=True)
+            latest_month_df.insert(0, '順位', range(1, len(latest_month_df) + 1))
+            
+            display_latest = latest_month_df[['順位', 'team_name', 'cumulative_points', 'avg_rank', 'games']].copy()
+            display_latest.columns = ['順位', 'チーム名', '累積pt', '平均順位', '対局数']
+            display_latest['累積pt'] = display_latest['累積pt'].apply(lambda x: f"{x:+.1f}")
+            display_latest['平均順位'] = display_latest['平均順位'].apply(lambda x: f"{x:.2f}")
+            
+            st.dataframe(display_latest, hide_index=True, use_container_width=True)
+
+# ========== タブ2: 席順別ランキング ==========
+with tab2:
     st.markdown("## 🧭 席順別ランキング")
     
     seats = ['東', '南', '西', '北']
@@ -262,8 +429,8 @@ with tab1:
                 
                 st.dataframe(display_df, width='stretch', hide_index=True, height=400)
 
-# ========== タブ2: 試合番号別ランキング ==========
-with tab2:
+# ========== タブ3: 試合番号別ランキング ==========
+with tab3:
     st.markdown("## 🎮 試合番号別ランキング")
     
     game_numbers = sorted(df['game_number'].unique())
@@ -383,8 +550,8 @@ with tab2:
                 
                 st.dataframe(display_df, width='stretch', hide_index=True, height=400)
 
-# ========== タブ3: 直対ランキング ==========
-with tab3:
+# ========== タブ4: 直対ランキング ==========
+with tab4:
     st.markdown("## ⚔️ 直対ランキング")
     
     st.info("""
@@ -399,7 +566,6 @@ with tab3:
     
     # 直対成績を計算
     conn = get_connection()
-    cursor = conn.cursor()
     
     if selected_period == "全期間":
         query = """
@@ -532,7 +698,7 @@ with tab3:
         )
         
         # フォーマット
-        pivot_display = pivot_data.map(lambda x: f"{x:+.1f}" if pd.notna(x) else "-")
+        pivot_display = pivot_data.applymap(lambda x: f"{x:+.1f}" if pd.notna(x) else "-")
         
         st.dataframe(pivot_display, width='stretch')
         
