@@ -25,6 +25,7 @@ st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積�
 st.sidebar.page_link("pages/13_player_game_analysis.py", label="📈 半荘別分析")
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/14_statistical_analysis.py", label="📈 統計分析")
+st.sidebar.page_link("pages/16_streak_records.py", label="🔥 連続記録")
 st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
@@ -34,7 +35,6 @@ st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新"
 st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
 st.sidebar.page_link("pages/11_game_results_input.py", label="🎮 半荘記録入力")
 
-# メインページ（トップページ）
 st.title("🀄 Mリーグダッシュボード")
 
 st.markdown("""

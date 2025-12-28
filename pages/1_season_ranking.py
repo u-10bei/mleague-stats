@@ -27,6 +27,7 @@ st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積�
 st.sidebar.page_link("pages/13_player_game_analysis.py", label="📈 半荘別分析")
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/14_statistical_analysis.py", label="📈 統計分析")
+st.sidebar.page_link("pages/16_streak_records.py", label="🔥 連続記録")
 st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
 st.sidebar.markdown("---")
 st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
@@ -136,29 +137,156 @@ if game_count > 0:
     if not df.empty:
         months = sorted(df['month'].unique())
         
-        st.markdown("### 月別ランキング（累積ポイント順）")
+        # タブで累積ポイントと平均順位を分ける
+        tab_cumulative, tab_avg_rank = st.tabs(["累積ポイント推移", "平均順位推移"])
         
-        for month in months:
-            with st.expander(f"📅 {month}", expanded=False):
-                month_df = df[df['month'] == month].copy()
+        with tab_cumulative:
+            st.markdown("### 📈 月別累積ポイント推移")
+            
+            # 折れ線グラフ作成
+            fig1 = go.Figure()
+            
+            teams = df['team_name'].unique()
+            
+            for team_name in sorted(teams):
+                team_data = df[df['team_name'] == team_name].sort_values('month')
                 
-                # 累積ポイント順に並べる
-                month_df = month_df.sort_values('total_points', ascending=False)
-                month_df.insert(0, '順位', range(1, len(month_df) + 1))
+                fig1.add_trace(go.Scatter(
+                    x=team_data['month'],
+                    y=team_data['total_points'],
+                    mode='lines+markers',
+                    name=team_name,
+                    line=dict(width=2),
+                    marker=dict(size=8),
+                    hovertemplate=(
+                        f'<b>{team_name}</b><br>' +
+                        '月: %{x}<br>' +
+                        '累積pt: %{y:+.1f}<br>' +
+                        '<extra></extra>'
+                    )
+                ))
+            
+            fig1.update_layout(
+                title=f"{selected_season}シーズン 月別累積ポイント推移",
+                xaxis_title="月",
+                yaxis_title="累積ポイント",
+                height=500,
+                hovermode='x unified',
+                legend=dict(
+                    orientation="v",
+                    yanchor="top",
+                    y=1,
+                    xanchor="left",
+                    x=1.02
+                ),
+                yaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=1)
+            )
+            
+            st.plotly_chart(fig1, width='stretch')
+            
+            # 統計サマリー
+            st.markdown("#### 📊 統計情報")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("対象月数", f"{len(months)}ヶ月")
+            
+            with col2:
+                total_games = df['games'].sum()
+                st.metric("総対局数", f"{int(total_games)}対局")
+            
+            with col3:
+                avg_games_per_month = total_games / len(months) if len(months) > 0 else 0
+                st.metric("月平均対局数", f"{avg_games_per_month:.1f}対局")
+            
+            # 最新月のランキング
+            st.markdown("#### 🏆 最新月のランキング")
+            
+            latest_month = months[-1]
+            latest_month_df = df[df['month'] == latest_month].sort_values('total_points', ascending=False)
+            latest_month_df = latest_month_df.reset_index(drop=True)
+            latest_month_df.insert(0, '順位', range(1, len(latest_month_df) + 1))
+            
+            display_latest = latest_month_df[['順位', 'team_name', 'total_points', 'avg_rank', 'games']].copy()
+            display_latest.columns = ['順位', 'チーム名', '累積pt', '平均順位', '対局数']
+            display_latest['累積pt'] = display_latest['累積pt'].apply(lambda x: f"{x:+.1f}")
+            display_latest['平均順位'] = display_latest['平均順位'].apply(lambda x: f"{x:.2f}")
+            
+            st.caption(f"**{latest_month}**")
+            st.dataframe(display_latest, hide_index=True, width='stretch')
+        
+        with tab_avg_rank:
+            st.markdown("### 📈 月別平均順位推移")
+            
+            # 折れ線グラフ作成
+            fig2 = go.Figure()
+            
+            teams = df['team_name'].unique()
+            
+            for team_name in sorted(teams):
+                team_data = df[df['team_name'] == team_name].sort_values('month')
                 
-                # 表示用に整形
-                display_df = month_df[[
-                    '順位', 'team_name', 'total_points', 'games', 'avg_rank'
-                ]].copy()
+                fig2.add_trace(go.Scatter(
+                    x=team_data['month'],
+                    y=team_data['avg_rank'],
+                    mode='lines+markers',
+                    name=team_name,
+                    line=dict(width=2),
+                    marker=dict(size=8),
+                    hovertemplate=(
+                        f'<b>{team_name}</b><br>' +
+                        '月: %{x}<br>' +
+                        '平均順位: %{y:.2f}<br>' +
+                        '<extra></extra>'
+                    )
+                ))
+            
+            fig2.update_layout(
+                title=f"{selected_season}シーズン 月別平均順位推移",
+                xaxis_title="月",
+                yaxis_title="平均順位",
+                height=500,
+                hovermode='x unified',
+                legend=dict(
+                    orientation="v",
+                    yanchor="top",
+                    y=1,
+                    xanchor="left",
+                    x=1.02
+                ),
+                yaxis=dict(
+                    autorange="reversed",  # 順位は小さいほうが良い
+                    dtick=0.5,
+                    zeroline=False
+                )
+            )
+            
+            st.plotly_chart(fig2, width='stretch')
+            
+            # 最良平均順位の月を表示
+            st.markdown("#### 🏆 平均順位ベスト月")
+            
+            best_rank_data = []
+            for team_name in teams:
+                team_data = df[df['team_name'] == team_name]
+                best_month_idx = team_data['avg_rank'].idxmin()
+                best_month = team_data.loc[best_month_idx, 'month']
+                best_rank = team_data.loc[best_month_idx, 'avg_rank']
+                best_points = team_data.loc[best_month_idx, 'total_points']
                 
-                display_df.columns = [
-                    '順位', 'チーム名', '累積pt', '対局数', '平均順位'
-                ]
-                
-                display_df['累積pt'] = display_df['累積pt'].apply(lambda x: f"{x:+.1f}")
-                display_df['平均順位'] = display_df['平均順位'].apply(lambda x: f"{x:.2f}")
-                
-                st.dataframe(display_df, width='stretch', hide_index=True, height=300)
+                best_rank_data.append({
+                    'チーム名': team_name,
+                    'ベスト月': best_month,
+                    '平均順位': best_rank,
+                    '累積pt': best_points
+                })
+            
+            best_rank_df = pd.DataFrame(best_rank_data).sort_values('平均順位')
+            best_rank_df['平均順位'] = best_rank_df['平均順位'].apply(lambda x: f"{x:.2f}")
+            best_rank_df['累積pt'] = best_rank_df['累積pt'].apply(lambda x: f"{x:+.1f}")
+            
+            st.dataframe(best_rank_df, hide_index=True, width='stretch')
     else:
         st.info(f"{selected_season}シーズンの半荘記録がありません。")
 else:
