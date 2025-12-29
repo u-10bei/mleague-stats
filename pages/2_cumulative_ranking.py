@@ -112,7 +112,7 @@ for team_id in rank_pivot.columns:
         mode="lines+markers",
         name=team_name,
         line=dict(color=color, width=2),
-        marker=dict(size=8)
+        marker=dict(size=8, color=color)
     ))
 
 fig2.update_layout(
@@ -170,7 +170,7 @@ for team_id in team_ids:
         mode="lines+markers",
         name=team_name,
         line=dict(color=color, width=2),
-        marker=dict(size=8)
+        marker=dict(size=8, color=color)
     ))
 
 fig3.update_layout(
@@ -281,8 +281,13 @@ if game_count > 0:
             
             teams = df['team_name'].unique()
             
+            # チーム名からteam_idへのマッピングを作成
+            team_name_to_id = df.drop_duplicates('team_name').set_index('team_name')['team_id'].to_dict()
+            
             for team_name in sorted(teams):
                 team_data = df[df['team_name'] == team_name].sort_values('month')
+                team_id = team_name_to_id.get(team_name)
+                color = team_colors.get(team_id, "#888888")
                 
                 # 月名を使用
                 x_labels = [month_names[m-1] for m in team_data['month']]
@@ -292,8 +297,8 @@ if game_count > 0:
                     y=team_data['total_points'],
                     mode='lines+markers',
                     name=team_name,
-                    line=dict(width=2),
-                    marker=dict(size=8),
+                    line=dict(color=color, width=2),
+                    marker=dict(size=8, color=color),
                     hovertemplate=(
                         f'<b>{team_name}</b><br>' +
                         '月: %{x}<br>' +
@@ -363,8 +368,13 @@ if game_count > 0:
             
             teams = df['team_name'].unique()
             
+            # チーム名からteam_idへのマッピングを作成
+            team_name_to_id = df.drop_duplicates('team_name').set_index('team_name')['team_id'].to_dict()
+            
             for team_name in sorted(teams):
                 team_data = df[df['team_name'] == team_name].sort_values('month')
+                team_id = team_name_to_id.get(team_name)
+                color = team_colors.get(team_id, "#888888")
                 
                 # 月名を使用
                 x_labels = [month_names[m-1] for m in team_data['month']]
@@ -374,8 +384,8 @@ if game_count > 0:
                     y=team_data['avg_rank'],
                     mode='lines+markers',
                     name=team_name,
-                    line=dict(width=2),
-                    marker=dict(size=8),
+                    line=dict(color=color, width=2),
+                    marker=dict(size=8, color=color),
                     hovertemplate=(
                         f'<b>{team_name}</b><br>' +
                         '月: %{x}<br>' +
