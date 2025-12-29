@@ -1,9 +1,9 @@
+import sys
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import sys
-sys.path.append("..")
 from db import get_connection, hide_default_sidebar_navigation
+sys.path.append("..")
 
 st.set_page_config(
     page_title="統計分析 | Mリーグダッシュボード",
@@ -44,7 +44,6 @@ st.markdown("""
 - **席順別統計**: 東・南・西・北の各席のパフォーマンスを比較
 - 期間を指定して分析可能
 """)
-
 
 # ========== データ取得 ==========
 conn = get_connection()
@@ -88,7 +87,6 @@ st.subheader("🧭 席順別パフォーマンス分析")
 st.markdown("""
 各席（東・南・西・北）での全選手の成績を集計し、席による有利・不利を分析します。
 """)
-
 
 # データ取得
 conn = get_connection()
@@ -159,17 +157,16 @@ df['rate_1st'] = (df['rank_1st'] / df['games'] * 100).round(2)
 df['rate_2nd'] = (df['rank_2nd'] / df['games'] * 100).round(2)
 df['rate_3rd'] = (df['rank_3rd'] / df['games'] * 100).round(2)
 df['rate_4th'] = (df['rank_4th'] / df['games'] * 100).round(2)
-    
 
 # ========== サマリーテーブル ==========
 st.markdown("### 📊 席順別統計サマリー")
 
 # 表示用テーブル
-display_df = df[['seat_name', 'games', 'avg_points', 'avg_rank', 
+display_df = df[['seat_name', 'games', 'avg_points', 'avg_rank',
                  'rank_1st', 'rank_2nd', 'rank_3rd', 'rank_4th',
                  'rate_1st']].copy()
 
-display_df.columns = ['席', '対局数', '平均pt', '平均順位', 
+display_df.columns = ['席', '対局数', '平均pt', '平均順位',
                       '1位', '2位', '3位', '4位', '1位率(%)']
 
 # フォーマット
@@ -193,7 +190,6 @@ st.dataframe(
         '1位率(%)': st.column_config.TextColumn(width="small"),
     }
 )
-    
 
 # ========== グラフ表示 ==========
 st.markdown("---")
@@ -203,11 +199,11 @@ tab1, tab2, tab3, tab4 = st.tabs(["平均ポイント", "平均順位", "順位�
 
 with tab1:
     st.markdown("#### 席別 平均ポイント")
-    
+
     fig1 = go.Figure()
-    
+
     colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A']
-    
+
     fig1.add_trace(go.Bar(
         x=df['seat_name'],
         y=df['avg_points'],
@@ -216,28 +212,28 @@ with tab1:
         textposition='outside',
         showlegend=False
     ))
-    
+
     fig1.update_layout(
         xaxis_title="席",
         yaxis_title="平均ポイント",
         height=400,
         yaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=2)
     )
-    
+
     st.plotly_chart(fig1)
-    
+
     # 最高値と最低値の差を表示
     max_seat = df.loc[df['avg_points'].idxmax()]
     min_seat = df.loc[df['avg_points'].idxmin()]
     diff = max_seat['avg_points'] - min_seat['avg_points']
-    
+
     st.info(f"💡 **{max_seat['seat_name']}家**が最も高く（平均{max_seat['avg_points']:+.2f}pt）、**{min_seat['seat_name']}家**が最も低い（平均{min_seat['avg_points']:+.2f}pt）。差は**{diff:.2f}pt**です。")
 
 with tab2:
     st.markdown("#### 席別 平均順位")
-    
+
     fig2 = go.Figure()
-    
+
     fig2.add_trace(go.Bar(
         x=df['seat_name'],
         y=df['avg_rank'],
@@ -246,28 +242,28 @@ with tab2:
         textposition='outside',
         showlegend=False
     ))
-    
+
     fig2.update_layout(
         xaxis_title="席",
         yaxis_title="平均順位",
         height=400,
         yaxis=dict(range=[1, 4])
     )
-    
+
     st.plotly_chart(fig2)
-    
+
     # 最良と最悪の順位
     best_seat = df.loc[df['avg_rank'].idxmin()]
     worst_seat = df.loc[df['avg_rank'].idxmax()]
     diff_rank = worst_seat['avg_rank'] - best_seat['avg_rank']
-    
+
     st.info(f"💡 **{best_seat['seat_name']}家**が最も良い平均順位（{best_seat['avg_rank']:.3f}位）、**{worst_seat['seat_name']}家**が最も悪い（{worst_seat['avg_rank']:.3f}位）。差は**{diff_rank:.3f}**です。")
 
 with tab3:
     st.markdown("#### 席別 順位分布")
-    
+
     fig3 = go.Figure()
-    
+
     fig3.add_trace(go.Bar(
         name='1位',
         x=df['seat_name'],
@@ -276,7 +272,7 @@ with tab3:
         text=df['rate_1st'].apply(lambda x: f"{x:.1f}%"),
         textposition='inside'
     ))
-    
+
     fig3.add_trace(go.Bar(
         name='2位',
         x=df['seat_name'],
@@ -285,7 +281,7 @@ with tab3:
         text=df['rate_2nd'].apply(lambda x: f"{x:.1f}%"),
         textposition='inside'
     ))
-    
+
     fig3.add_trace(go.Bar(
         name='3位',
         x=df['seat_name'],
@@ -294,7 +290,7 @@ with tab3:
         text=df['rate_3rd'].apply(lambda x: f"{x:.1f}%"),
         textposition='inside'
     ))
-    
+
     fig3.add_trace(go.Bar(
         name='4位',
         x=df['seat_name'],
@@ -303,7 +299,7 @@ with tab3:
         text=df['rate_4th'].apply(lambda x: f"{x:.1f}%"),
         textposition='inside'
     ))
-    
+
     fig3.update_layout(
         barmode='stack',
         xaxis_title="席",
@@ -317,16 +313,16 @@ with tab3:
             x=0.5
         )
     )
-    
+
     st.plotly_chart(fig3)
-    
+
     st.info("💡 各席での1位〜4位の出現率を積み上げ棒グラフで表示。理想的には各順位が25%ずつになります。")
 
 with tab4:
     st.markdown("#### 席別 1位率")
-    
+
     fig4 = go.Figure()
-    
+
     # 基準線（25%）
     fig4.add_trace(go.Scatter(
         x=['東', '南', '西', '北'],
@@ -335,7 +331,7 @@ with tab4:
         name='理論値（25%）',
         line=dict(color='red', dash='dash', width=2)
     ))
-    
+
     fig4.add_trace(go.Bar(
         x=df['seat_name'],
         y=df['rate_1st'],
@@ -345,28 +341,30 @@ with tab4:
         name='実測値',
         showlegend=True
     ))
-    
+
     fig4.update_layout(
         xaxis_title="席",
         yaxis_title="1位率（%）",
         height=400,
         yaxis=dict(range=[0, max(df['rate_1st'].max() + 2, 30)])
     )
-    
+
     st.plotly_chart(fig4)
-    
+
     # 25%との差を計算
     st.markdown("#### 理論値（25%）からの乖離")
-    
+
     for _, row in df.iterrows():
         diff_from_25 = row['rate_1st'] - 25
         if diff_from_25 > 0:
-            st.success(f"**{row['seat_name']}家**: {row['rate_1st']:.2f}% （理論値より**+{diff_from_25:.2f}%**高い）")
+            st.success(
+                f"**{row['seat_name']}家**: {row['rate_1st']:.2f}% （理論値より**+{diff_from_25:.2f}%**高い）")
         elif diff_from_25 < 0:
-            st.error(f"**{row['seat_name']}家**: {row['rate_1st']:.2f}% （理論値より**{diff_from_25:.2f}%**低い）")
+            st.error(
+                f"**{row['seat_name']}家**: {row['rate_1st']:.2f}% （理論値より**{diff_from_25:.2f}%**低い）")
         else:
-            st.info(f"**{row['seat_name']}家**: {row['rate_1st']:.2f}% （理論値と一致）")
-    
+            st.info(
+                f"**{row['seat_name']}家**: {row['rate_1st']:.2f}% （理論値と一致）")
 
 # ========== 統計的考察 ==========
 st.markdown("---")
@@ -376,18 +374,18 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.markdown("#### 🎯 主要な知見")
-    
+
     # 最も有利な席
     best_points_seat = df.loc[df['avg_points'].idxmax()]
     best_rank_seat = df.loc[df['avg_rank'].idxmin()]
     best_rate_seat = df.loc[df['rate_1st'].idxmax()]
-    
+
     st.markdown(f"""
     - **平均ポイントが最も高い**: {best_points_seat['seat_name']}家（{best_points_seat['avg_points']:+.2f}pt）
     - **平均順位が最も良い**: {best_rank_seat['seat_name']}家（{best_rank_seat['avg_rank']:.3f}位）
     - **1位率が最も高い**: {best_rate_seat['seat_name']}家（{best_rate_seat['rate_1st']:.2f}%）
     """)
-    
+
     # データ規模
     total_games = df['games'].sum()
     st.markdown(f"""
@@ -399,14 +397,15 @@ with col1:
 
 with col2:
     st.markdown("#### 📊 順位分布の均等性")
-    
+
     # 各順位の分散を計算
-    for rank_col, rank_name in [('rate_1st', '1位'), ('rate_2nd', '2位'), 
-                                  ('rate_3rd', '3位'), ('rate_4th', '4位')]:
+    for rank_col, rank_name in [('rate_1st', '1位'), ('rate_2nd', '2位'),
+                                ('rate_3rd', '3位'), ('rate_4th', '4位')]:
         mean_rate = df[rank_col].mean()
         std_rate = df[rank_col].std()
-        st.markdown(f"**{rank_name}率**: 平均 {mean_rate:.2f}%、標準偏差 {std_rate:.2f}%")
-    
+        st.markdown(
+            f"**{rank_name}率**: 平均 {mean_rate:.2f}%、標準偏差 {std_rate:.2f}%")
+
     st.markdown("---")
     st.info("""
     💡 **解釈のヒント**
@@ -447,4 +446,3 @@ st.info("""
 
 st.markdown("---")
 st.caption("※ データは半荘記録から集計されています。")
-

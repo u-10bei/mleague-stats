@@ -1,3 +1,4 @@
+import sqlite3
 import streamlit as st
 import pandas as pd
 from db import get_connection, hide_default_sidebar_navigation
@@ -45,9 +46,9 @@ st.subheader("📅 新シーズン設定")
 col1, col2 = st.columns([1, 3])
 with col1:
     new_season = st.number_input(
-        "新シーズン", 
-        min_value=2018, 
-        max_value=2030, 
+        "新シーズン",
+        min_value=2018,
+        max_value=2030,
         value=2025,
         help="更新する新しいシーズンの年度を入力してください"
     )
@@ -58,7 +59,8 @@ with col2:
 # 前シーズンが存在するか確認
 conn = get_connection()
 cursor = conn.cursor()
-cursor.execute("SELECT COUNT(*) FROM team_names WHERE season = ?", (new_season - 1,))
+cursor.execute(
+    "SELECT COUNT(*) FROM team_names WHERE season = ?", (new_season - 1,))
 prev_season_exists = cursor.fetchone()[0] > 0
 conn.close()
 
@@ -81,7 +83,7 @@ if "season_update_confirmed" not in st.session_state:
 with tab1:
     st.subheader(f"🏷️ {new_season}シーズンのチーム名設定")
     st.markdown(f"前シーズン（{new_season-1}）のチーム名がデフォルトで表示されます。変更がある場合のみ編集してください。")
-    
+
     # 前シーズンのチーム名を取得
     conn = get_connection()
     cursor = conn.cursor()
@@ -94,30 +96,31 @@ with tab1:
     """, (new_season - 1,))
     prev_teams = cursor.fetchall()
     conn.close()
-    
+
     st.markdown("---")
-    
+
     # チーム名入力フォーム
     team_name_changes = {}
-    
+
     for team_id, short_name, prev_name in prev_teams:
         col1, col2, col3 = st.columns([1, 2, 2])
-        
+
         with col1:
             st.write(f"**{short_name}**")
-        
+
         with col2:
             st.text_input(
-                "前シーズン", 
-                value=prev_name, 
+                "前シーズン",
+                value=prev_name,
                 disabled=True,
                 key=f"prev_name_{team_id}",
                 label_visibility="collapsed"
             )
-        
+
         with col3:
             # セッション状態に保存されている値があればそれを使用、なければ前シーズンの名前
-            default_value = st.session_state.season_update_team_names.get(team_id, prev_name)
+            default_value = st.session_state.season_update_team_names.get(
+                team_id, prev_name)
             new_name = st.text_input(
                 f"{new_season}シーズン",
                 value=default_value,
@@ -126,13 +129,13 @@ with tab1:
                 label_visibility="collapsed"
             )
             team_name_changes[team_id] = new_name
-    
+
     # チーム名をセッション状態に保存
     if st.button("チーム名を保存", key="save_team_names", type="primary"):
         st.session_state.season_update_team_names = team_name_changes
         st.success("✅ チーム名を保存しました。次のタブで選手移籍を入力してください。")
         st.rerun()
-    
+
     # 保存済みの場合は表示
     if st.session_state.season_update_team_names:
         st.markdown("---")
@@ -141,12 +144,12 @@ with tab1:
 # ========== タブ2: 選手移籍入力 ==========
 with tab2:
     st.subheader(f"👥 {new_season}シーズンの選手移籍入力")
-    
+
     if not st.session_state.season_update_team_names:
         st.warning("⚠️ 先に「チーム名設定」タブでチーム名を保存してください。")
     else:
         st.markdown(f"前シーズン（{new_season-1}）所属の選手について、残留・移籍・退団を選択してください。")
-        
+
         # 前シーズンの選手所属情報を取得
         conn = get_connection()
         cursor = conn.cursor()
@@ -160,21 +163,22 @@ with tab2:
             ORDER BY t.team_id, p.player_name
         """, (new_season - 1,))
         prev_players = cursor.fetchall()
-        
+
         # チーム選択肢を取得
-        cursor.execute("SELECT team_id, short_name FROM teams ORDER BY team_id")
+        cursor.execute(
+            "SELECT team_id, short_name FROM teams ORDER BY team_id")
         team_options = {row[1]: row[0] for row in cursor.fetchall()}
         conn.close()
-        
+
         if not prev_players:
             st.info(f"ℹ️ {new_season-1}シーズンに所属選手が登録されていません。")
         else:
             st.markdown("---")
-            
+
             # チームごとにグループ化して表示
             current_team = None
             player_moves = {}
-            
+
             for player_id, player_name, team_id, short_name, team_name in prev_players:
                 # 新しいチームの場合はヘッダーを表示
                 if current_team != team_id:
@@ -182,15 +186,16 @@ with tab2:
                         st.markdown("---")
                     st.markdown(f"### 📋 {short_name} ({team_name})")
                     current_team = team_id
-                
+
                 col1, col2, col3 = st.columns([2, 2, 3])
-                
+
                 with col1:
                     st.write(f"**{player_name}**")
-                
+
                 with col2:
                     # セッション状態から前回の選択を取得
-                    prev_status = st.session_state.season_update_player_moves.get(player_id, {}).get("status", "残留")
+                    prev_status = st.session_state.season_update_player_moves.get(
+                        player_id, {}).get("status", "残留")
                     status = st.selectbox(
                         "状態",
                         ["残留", "移籍", "退団"],
@@ -198,22 +203,24 @@ with tab2:
                         key=f"status_{player_id}",
                         label_visibility="collapsed"
                     )
-                
+
                 with col3:
                     if status == "移籍":
                         # セッション状態から前回の選択を取得
-                        prev_new_team = st.session_state.season_update_player_moves.get(player_id, {}).get("new_team_id")
+                        prev_new_team = st.session_state.season_update_player_moves.get(
+                            player_id, {}).get("new_team_id")
                         prev_new_team_name = None
                         if prev_new_team:
                             for name, tid in team_options.items():
                                 if tid == prev_new_team:
                                     prev_new_team_name = name
                                     break
-                        
+
                         new_team_name = st.selectbox(
                             "移籍先",
                             list(team_options.keys()),
-                            index=list(team_options.keys()).index(prev_new_team_name) if prev_new_team_name else 0,
+                            index=list(team_options.keys()).index(
+                                prev_new_team_name) if prev_new_team_name else 0,
                             key=f"new_team_{player_id}",
                             label_visibility="collapsed"
                         )
@@ -259,13 +266,13 @@ with tab2:
                                 "new_team_id": None,
                                 "new_team_name": None
                             }
-            
+
             # 選手移籍情報をセッション状態に保存
             if st.button("選手移籍を保存", key="save_player_moves", type="primary"):
                 st.session_state.season_update_player_moves = player_moves
                 st.success("✅ 選手移籍情報を保存しました。「確認と登録」タブで内容を確認してください。")
                 st.rerun()
-            
+
             # 保存済みの場合は表示
             if st.session_state.season_update_player_moves:
                 st.markdown("---")
@@ -274,18 +281,18 @@ with tab2:
 # ========== タブ3: 確認と登録 ==========
 with tab3:
     st.subheader(f"✅ {new_season}シーズン更新内容の確認")
-    
+
     if not st.session_state.season_update_team_names:
         st.warning("⚠️ チーム名設定を完了してください。")
     elif not st.session_state.season_update_player_moves:
         st.warning("⚠️ 選手移籍入力を完了してください。")
     else:
         st.success("✅ すべての情報が入力されています。内容を確認して登録してください。")
-        
+
         # チーム名変更の確認
         st.markdown("---")
         st.markdown("### 🏷️ チーム名変更")
-        
+
         team_name_list = []
         for team_id, new_name in st.session_state.season_update_team_names.items():
             # 前シーズンの名前を取得
@@ -299,7 +306,7 @@ with tab3:
             """, (team_id, new_season - 1))
             result = cursor.fetchone()
             conn.close()
-            
+
             if result:
                 short_name, prev_name = result
                 change_status = "変更あり" if prev_name != new_name else "変更なし"
@@ -309,14 +316,14 @@ with tab3:
                     f"{new_season}年": new_name,
                     "状態": change_status
                 })
-        
+
         df_teams = pd.DataFrame(team_name_list)
         st.dataframe(df_teams, hide_index=True, width="stretch")
-        
+
         # 選手移籍の確認
         st.markdown("---")
         st.markdown("### 👥 選手移籍")
-        
+
         player_move_list = []
         for player_id, info in st.session_state.season_update_player_moves.items():
             if info["status"] == "残留":
@@ -325,15 +332,15 @@ with tab3:
                 move_info = f"OUT: {info['prev_team_name']} → IN: {info['new_team_name']}"
             else:  # 退団
                 move_info = f"OUT: {info['prev_team_name']} (退団)"
-            
+
             player_move_list.append({
                 "選手名": info["player_name"],
                 "移籍情報": move_info,
                 "状態": info["status"]
             })
-        
+
         df_players = pd.DataFrame(player_move_list)
-        
+
         # フィルタ
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -342,7 +349,7 @@ with tab3:
             show_transfer = st.checkbox("移籍", value=True)
         with col3:
             show_retire = st.checkbox("退団", value=True)
-        
+
         filter_status = []
         if show_stay:
             filter_status.append("残留")
@@ -350,11 +357,11 @@ with tab3:
             filter_status.append("移籍")
         if show_retire:
             filter_status.append("退団")
-        
+
         if filter_status:
             filtered_df = df_players[df_players["状態"].isin(filter_status)]
             st.dataframe(filtered_df, hide_index=True, width="stretch")
-            
+
             # 統計情報
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -370,10 +377,10 @@ with tab3:
                 st.metric("退団", retire_count)
         else:
             st.info("表示する状態を選択してください")
-        
+
         # 登録ボタン
         st.markdown("---")
-        
+
         col1, col2 = st.columns([3, 1])
         with col1:
             st.warning("⚠️ 登録後は元に戻せません。内容を十分に確認してから登録してください。")
@@ -382,14 +389,14 @@ with tab3:
                 try:
                     conn = get_connection()
                     cursor = conn.cursor()
-                    
+
                     # 1. チーム名を登録
                     for team_id, new_name in st.session_state.season_update_team_names.items():
                         cursor.execute("""
                             INSERT OR REPLACE INTO team_names (team_id, season, team_name)
                             VALUES (?, ?, ?)
                         """, (team_id, new_season, new_name))
-                    
+
                     # 2. 選手所属を登録（退団者以外）
                     for player_id, info in st.session_state.season_update_player_moves.items():
                         if info["status"] != "退団":
@@ -397,19 +404,19 @@ with tab3:
                                 INSERT OR REPLACE INTO player_teams (player_id, team_id, season)
                                 VALUES (?, ?, ?)
                             """, (player_id, info["new_team_id"], new_season))
-                    
+
                     conn.commit()
                     conn.close()
-                    
+
                     st.success(f"✅ {new_season}シーズンのデータを登録しました！")
-                    
+
                     # セッション状態をクリア
                     st.session_state.season_update_team_names = {}
                     st.session_state.season_update_player_moves = {}
                     st.session_state.season_update_confirmed = True
-                    
+
                     st.balloons()
-                    
+
                     # 完了メッセージ
                     st.markdown("---")
                     st.info("""
@@ -419,8 +426,8 @@ with tab3:
                     1. 新加入選手がいる場合は「選手管理」ページで登録してください
                     2. シーズン成績を「データ管理」ページで入力してください
                     """)
-                    
-                except Exception as e:
+
+                except (sqlite3.Error, ValueError) as e:
                     conn.rollback()
                     conn.close()
                     st.error(f"❌ エラーが発生しました: {e}")
@@ -444,7 +451,7 @@ with st.sidebar:
        - 変更内容を確認
        - 問題なければ「登録」
     """)
-    
+
     st.markdown("---")
     st.markdown("### ⚠️ 注意事項")
     st.markdown("""

@@ -1,8 +1,8 @@
+import sys
 import streamlit as st
 import pandas as pd
-import sys
-sys.path.append("..")
 from db import get_connection, hide_default_sidebar_navigation
+sys.path.append("..")
 
 st.set_page_config(
     page_title="対局記録 | Mリーグダッシュボード",
@@ -88,24 +88,27 @@ st.markdown("""
 """)
 
 # 対局時間を計算する関数
+
+
 def calc_duration_minutes(start_time, end_time):
     """HH:MM形式の時刻から対局時間（分）を計算"""
     try:
         start_parts = start_time.split(':')
         end_parts = end_time.split(':')
-        
+
         start_minutes = int(start_parts[0]) * 60 + int(start_parts[1])
         end_minutes = int(end_parts[0]) * 60 + int(end_parts[1])
-        
+
         duration = end_minutes - start_minutes
-        
+
         # 日をまたぐ場合（負の値になる場合）
         if duration < 0:
             duration += 24 * 60
-        
+
         return duration
-    except:
+    except (ValueError, IndexError, TypeError):
         return None
+
 
 def format_duration(minutes):
     """分を H:MM 形式に変換"""
@@ -114,6 +117,7 @@ def format_duration(minutes):
     hours = minutes // 60
     mins = minutes % 60
     return f"{hours}:{mins:02d}"
+
 
 # データ取得
 conn = get_connection()
@@ -166,7 +170,7 @@ if not results:
 
 # DataFrameに変換
 df = pd.DataFrame(results, columns=[
-    'season', 'game_date', 'table_type', 'game_number', 
+    'season', 'game_date', 'table_type', 'game_number',
     'start_time', 'end_time', 'players'
 ])
 
@@ -193,7 +197,7 @@ shortest_df = df.nsmallest(10, 'duration_minutes').copy()
 
 # 表示用に整形
 shortest_display = shortest_df[[
-    'game_date', 'table_type', 'start_time', 'end_time', 
+    'game_date', 'table_type', 'start_time', 'end_time',
     'duration_formatted', 'players'
 ]].copy()
 
@@ -222,7 +226,8 @@ st.dataframe(
 # 統計情報
 if not shortest_df.empty:
     fastest_game = shortest_df.iloc[0]
-    st.info(f"💨 **最短記録**: {fastest_game['duration_formatted']} （{fastest_game['game_date']} {fastest_game['table_type']}）")
+    st.info(
+        f"💨 **最短記録**: {fastest_game['duration_formatted']} （{fastest_game['game_date']} {fastest_game['table_type']}）")
 
 # ========== 最長対局トップ10 ==========
 st.markdown("---")
@@ -232,7 +237,7 @@ longest_df = df.nlargest(10, 'duration_minutes').copy()
 
 # 表示用に整形
 longest_display = longest_df[[
-    'game_date', 'table_type', 'start_time', 'end_time', 
+    'game_date', 'table_type', 'start_time', 'end_time',
     'duration_formatted', 'players'
 ]].copy()
 
@@ -261,7 +266,8 @@ st.dataframe(
 # 統計情報
 if not longest_df.empty:
     slowest_game = longest_df.iloc[0]
-    st.info(f"🐢 **最長記録**: {slowest_game['duration_formatted']} （{slowest_game['game_date']} {slowest_game['table_type']}）")
+    st.info(
+        f"🐢 **最長記録**: {slowest_game['duration_formatted']} （{slowest_game['game_date']} {slowest_game['table_type']}）")
 
 # ========== 全体統計 ==========
 st.markdown("---")

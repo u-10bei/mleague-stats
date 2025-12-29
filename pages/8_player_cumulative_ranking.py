@@ -1,9 +1,16 @@
+import sys
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import sys
+from db import (
+    get_player_cumulative_stats,
+    get_player_history,
+    get_players,
+    get_player_all_stats,
+    get_connection,
+    hide_default_sidebar_navigation
+)
 sys.path.append("..")
-from db import get_player_cumulative_stats, get_player_history, get_players, get_player_all_stats, get_connection, hide_default_sidebar_navigation
 
 st.set_page_config(
     page_title="累積選手ランキング | Mリーグダッシュボード",
@@ -53,9 +60,10 @@ col1, col2 = st.columns([2, 1])
 with col1:
     # 累積ポイント棒グラフ（上位20名）
     fig = go.Figure()
-    
-    display_df = cumulative_df.head(20).sort_values("total_points", ascending=True)
-    
+
+    display_df = cumulative_df.head(20).sort_values(
+        "total_points", ascending=True)
+
     for _, row in display_df.iterrows():
         fig.add_trace(go.Bar(
             y=[row["player_name"]],
@@ -73,7 +81,7 @@ with col1:
                          f"平均pt: {row['avg_points']:+.1f}<br>" +
                          "<extra></extra>"
         ))
-    
+
     fig.update_layout(
         title="選手別 累積ポイント（上位20名）",
         xaxis_title="累積ポイント",
@@ -82,21 +90,21 @@ with col1:
         margin=dict(l=150, r=100, t=50, b=50),
         xaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=2)
     )
-    
+
     st.plotly_chart(fig, width="stretch")
 
 with col2:
     # 通算順位表（上位10名）
     st.markdown("### 🏆 通算順位 TOP10")
-    
-    display_df = cumulative_df.head(10)[["rank", "player_name", "team_name", "total_points", 
-                                          "seasons", "avg_points"]].copy()
+
+    display_df = cumulative_df.head(10)[["rank", "player_name", "team_name", "total_points",
+                                         "seasons", "avg_points"]].copy()
     display_df.columns = ["順位", "選手名", "所属", "累積pt", "参加", "平均pt"]
     display_df["累積pt"] = display_df["累積pt"].apply(lambda x: f"{x:+.1f}")
     display_df["平均pt"] = display_df["平均pt"].apply(lambda x: f"{x:+.1f}")
-    
+
     st.dataframe(display_df, hide_index=True, height=400)
-    
+
     # 統計情報
     st.markdown("### 📈 統計情報")
     st.metric("登録選手数", f"{len(cumulative_df)}名")
@@ -112,14 +120,15 @@ all_stats = get_player_all_stats()
 
 if not all_stats.empty:
     # 各シーズンでの順位を計算
-    all_stats['season_rank'] = all_stats.groupby('season')['points'].rank(ascending=False, method='min')
-    
+    all_stats['season_rank'] = all_stats.groupby(
+        'season')['points'].rank(ascending=False, method='min')
+
     # 上位10名の選手を取得（累積ポイントから）
     top_players = cumulative_df.head(10)['player_id'].tolist()
-    
+
     # グラフ作成
     fig2 = go.Figure()
-    
+
     for player_id in top_players:
         player_data = all_stats[all_stats['player_id'] == player_id]
         if not player_data.empty:
@@ -132,7 +141,7 @@ if not all_stats.empty:
                 line=dict(width=2),
                 marker=dict(size=8)
             ))
-    
+
     fig2.update_layout(
         title="選手別順位推移（累積上位10名）",
         xaxis_title="シーズン",
@@ -147,7 +156,7 @@ if not all_stats.empty:
             x=1.02
         )
     )
-    
+
     st.plotly_chart(fig2, width="stretch")
 
 st.markdown("---")
@@ -160,11 +169,12 @@ all_stats = get_player_all_stats()
 if not all_stats.empty:
     # 上位10名の選手を取得
     top_players = cumulative_df.head(10)['player_id'].tolist()
-    
+
     # 累積ポイントを計算
     cumulative_by_season = []
     for player_id in top_players:
-        player_data = all_stats[all_stats['player_id'] == player_id].sort_values('season')
+        player_data = all_stats[all_stats['player_id']
+                                == player_id].sort_values('season')
         if not player_data.empty:
             player_name = player_data.iloc[0]['player_name']
             cum_points = 0
@@ -176,11 +186,11 @@ if not all_stats.empty:
                     'season': row['season'],
                     'cumulative_points': cum_points
                 })
-    
+
     cum_df = pd.DataFrame(cumulative_by_season)
-    
+
     fig3 = go.Figure()
-    
+
     for player_id in top_players:
         player_data = cum_df[cum_df['player_id'] == player_id]
         if not player_data.empty:
@@ -193,7 +203,7 @@ if not all_stats.empty:
                 line=dict(width=2),
                 marker=dict(size=8)
             ))
-    
+
     fig3.update_layout(
         title="選手別 累積ポイント推移（上位10名）",
         xaxis_title="シーズン",
@@ -208,7 +218,7 @@ if not all_stats.empty:
         ),
         yaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=1)
     )
-    
+
     st.plotly_chart(fig3, width="stretch")
 
 st.markdown("---")
@@ -235,21 +245,23 @@ if min_seasons > 0:
 if min_games > 0:
     filtered_df = filtered_df[filtered_df['total_games'] >= min_games]
 if search_name:
-    filtered_df = filtered_df[filtered_df['player_name'].str.contains(search_name, na=False)]
+    filtered_df = filtered_df[filtered_df['player_name'].str.contains(
+        search_name, na=False)]
 
 # 詳細データ表示
-detail_df = filtered_df[["rank", "player_name", "team_name", "total_games", "total_points", 
-                         "total_1st", "total_2nd", "total_3rd", "total_4th", 
+detail_df = filtered_df[["rank", "player_name", "team_name", "total_games", "total_points",
+                         "total_1st", "total_2nd", "total_3rd", "total_4th",
                          "seasons", "avg_points"]].copy()
-detail_df.columns = ["順位", "選手名", "所属", "試合数", "累積pt", "1位", "2位", "3位", "4位", "参加", "平均pt"]
+detail_df.columns = ["順位", "選手名", "所属", "試合数",
+                     "累積pt", "1位", "2位", "3位", "4位", "参加", "平均pt"]
 detail_df["累積pt"] = detail_df["累積pt"].apply(lambda x: f"{x:+.1f}")
 detail_df["平均pt"] = detail_df["平均pt"].apply(lambda x: f"{x:+.1f}")
 
 # 平均順位を計算
 filtered_df['avg_rank'] = (
-    filtered_df['total_1st'] * 1 + 
-    filtered_df['total_2nd'] * 2 + 
-    filtered_df['total_3rd'] * 3 + 
+    filtered_df['total_1st'] * 1 +
+    filtered_df['total_2nd'] * 2 +
+    filtered_df['total_3rd'] * 3 +
     filtered_df['total_4th'] * 4
 ) / filtered_df['total_games']
 detail_df["平均順位"] = filtered_df['avg_rank'].apply(lambda x: f"{x:.2f}")
@@ -282,7 +294,8 @@ st.subheader("📋 選手別シーズン成績")
 
 # 選手選択
 players_df = get_players()
-player_options = {row["player_name"]: row["player_id"] for _, row in players_df.iterrows()}
+player_options = {row["player_name"]: row["player_id"]
+                  for _, row in players_df.iterrows()}
 
 selected_player_name = st.selectbox("選手を選択", sorted(player_options.keys()))
 selected_player_id = player_options[selected_player_name]
@@ -292,39 +305,42 @@ player_history = get_player_history(selected_player_id)
 if not player_history.empty:
     # 選手の統計情報
     col1, col2, col3, col4 = st.columns(4)
-    
+
     with col1:
         total = player_history["points"].sum()
         st.metric("累積ポイント", f"{total:+.1f}")
-    
+
     with col2:
         avg = player_history["points"].mean()
         st.metric("平均ポイント", f"{avg:+.1f}")
-    
+
     with col3:
         total_games = player_history["games"].sum()
         st.metric("通算試合数", f"{int(total_games)}試合")
-    
+
     with col4:
         seasons_count = len(player_history)
         st.metric("参加シーズン", f"{seasons_count}年")
-    
+
     st.markdown("#### シーズン成績履歴")
-    
-    history_display = player_history[["season", "team_name", "games", "points", 
-                                       "rank_1st", "rank_2nd", "rank_3rd", "rank_4th"]].copy()
-    history_display.columns = ["シーズン", "所属チーム", "試合数", "ポイント", "1位", "2位", "3位", "4位"]
-    history_display["ポイント"] = history_display["ポイント"].apply(lambda x: f"{x:+.1f}")
-    
+
+    history_display = player_history[["season", "team_name", "games", "points",
+                                      "rank_1st", "rank_2nd", "rank_3rd", "rank_4th"]].copy()
+    history_display.columns = ["シーズン", "所属チーム",
+                               "試合数", "ポイント", "1位", "2位", "3位", "4位"]
+    history_display["ポイント"] = history_display["ポイント"].apply(
+        lambda x: f"{x:+.1f}")
+
     # 平均順位を計算
     player_history['avg_rank'] = (
-        player_history['rank_1st'] * 1 + 
-        player_history['rank_2nd'] * 2 + 
-        player_history['rank_3rd'] * 3 + 
+        player_history['rank_1st'] * 1 +
+        player_history['rank_2nd'] * 2 +
+        player_history['rank_3rd'] * 3 +
         player_history['rank_4th'] * 4
     ) / player_history['games']
-    history_display["平均順位"] = player_history['avg_rank'].apply(lambda x: f"{x:.2f}")
-    
+    history_display["平均順位"] = player_history['avg_rank'].apply(
+        lambda x: f"{x:.2f}")
+
     st.dataframe(history_display, hide_index=True)
 else:
     st.info(f"{selected_player_name} の成績データがありません。")
@@ -361,44 +377,50 @@ if game_count > 0:
         GROUP BY month, gr.player_id, p.player_name
         ORDER BY month, total_points DESC
     """
-    
+
     df = pd.read_sql_query(query, conn)
     conn.close()
-    
+
     if not df.empty:
         months = sorted(df['month'].unique())
-        month_names = ['1月', '2月', '3月', '4月', '5月', '6月', 
-                      '7月', '8月', '9月', '10月', '11月', '12月']
-        
+        month_names = ['1月', '2月', '3月', '4月', '5月', '6月',
+                       '7月', '8月', '9月', '10月', '11月', '12月']
+
         st.markdown("### 月別ランキング（累積ポイント順）")
-        
+
         for month in months:
             with st.expander(f"📅 {month_names[month-1]}", expanded=False):
                 month_df = df[df['month'] == month].copy()
-                
+
                 # 累積ポイント順に並べる
-                month_df = month_df.sort_values('total_points', ascending=False)
+                month_df = month_df.sort_values(
+                    'total_points', ascending=False)
                 month_df.insert(0, '順位', range(1, len(month_df) + 1))
-                
+
                 # 1位率を計算
-                month_df['first_rate'] = (month_df['rank_1st'] / month_df['games'] * 100).round(1)
-                
+                month_df['first_rate'] = (
+                    month_df['rank_1st'] / month_df['games'] * 100).round(1)
+
                 # 表示用に整形
                 display_df = month_df[[
                     '順位', 'player_name', 'total_points', 'games', 'avg_rank',
                     'rank_1st', 'rank_2nd', 'rank_3rd', 'rank_4th', 'first_rate'
                 ]].copy()
-                
+
                 display_df.columns = [
                     '順位', '選手名', '累積pt', '対局数', '平均順位',
                     '1位', '2位', '3位', '4位', '1位率(%)'
                 ]
-                
-                display_df['累積pt'] = display_df['累積pt'].apply(lambda x: f"{x:+.1f}")
-                display_df['平均順位'] = display_df['平均順位'].apply(lambda x: f"{x:.2f}")
-                display_df['1位率(%)'] = display_df['1位率(%)'].apply(lambda x: f"{x:.1f}")
-                
-                st.dataframe(display_df, width='stretch', hide_index=True, height=400)
+
+                display_df['累積pt'] = display_df['累積pt'].apply(
+                    lambda x: f"{x:+.1f}")
+                display_df['平均順位'] = display_df['平均順位'].apply(
+                    lambda x: f"{x:.2f}")
+                display_df['1位率(%)'] = display_df['1位率(%)'].apply(
+                    lambda x: f"{x:.1f}")
+
+                st.dataframe(display_df, width='stretch',
+                             hide_index=True, height=400)
     else:
         st.info("半荘記録がありません。")
 else:
@@ -437,41 +459,48 @@ if game_count > 0:
         GROUP BY gr.seat_name, gr.player_id, p.player_name
         ORDER BY gr.seat_name, total_points DESC
     """
-    
+
     seat_df = pd.read_sql_query(query, conn)
-    
+
     if not seat_df.empty:
         seats = ['東', '南', '西', '北']
-        
+
         for seat in seats:
             with st.expander(f"🧭 {seat}家", expanded=False):
                 seat_data = seat_df[seat_df['seat_name'] == seat].copy()
-                
+
                 if not seat_data.empty:
                     # 1位率を計算
-                    seat_data['first_rate'] = (seat_data['rank_1st'] / seat_data['games'] * 100).round(1)
-                    
+                    seat_data['first_rate'] = (
+                        seat_data['rank_1st'] / seat_data['games'] * 100).round(1)
+
                     # 順位を追加
-                    seat_data = seat_data.sort_values('total_points', ascending=False)
+                    seat_data = seat_data.sort_values(
+                        'total_points', ascending=False)
                     seat_data.insert(0, '順位', range(1, len(seat_data) + 1))
-                    
+
                     # 表示用に整形
                     display_df = seat_data[[
                         '順位', 'player_name', 'games', 'total_points', 'avg_points',
                         'avg_rank', 'rank_1st', 'rank_2nd', 'rank_3rd', 'rank_4th', 'first_rate'
                     ]].copy()
-                    
+
                     display_df.columns = [
                         '順位', '選手名', '対局数', '累積pt', '平均pt',
                         '平均順位', '1位', '2位', '3位', '4位', '1位率(%)'
                     ]
-                    
-                    display_df['累積pt'] = display_df['累積pt'].apply(lambda x: f"{x:+.1f}")
-                    display_df['平均pt'] = display_df['平均pt'].apply(lambda x: f"{x:+.1f}")
-                    display_df['平均順位'] = display_df['平均順位'].apply(lambda x: f"{x:.2f}")
-                    display_df['1位率(%)'] = display_df['1位率(%)'].apply(lambda x: f"{x:.1f}")
-                    
-                    st.dataframe(display_df, width='stretch', hide_index=True, height=400)
+
+                    display_df['累積pt'] = display_df['累積pt'].apply(
+                        lambda x: f"{x:+.1f}")
+                    display_df['平均pt'] = display_df['平均pt'].apply(
+                        lambda x: f"{x:+.1f}")
+                    display_df['平均順位'] = display_df['平均順位'].apply(
+                        lambda x: f"{x:.2f}")
+                    display_df['1位率(%)'] = display_df['1位率(%)'].apply(
+                        lambda x: f"{x:.1f}")
+
+                    st.dataframe(display_df, width='stretch',
+                                 hide_index=True, height=400)
                 else:
                     st.info(f"{seat}家のデータがありません")
     else:
@@ -508,55 +537,57 @@ conn.close()
 
 if not time_df.empty:
     # 対局時間（分）を計算
-    def calc_duration(row):
+    def calc_duration(game_row):
         try:
-            start_parts = row['start_time'].split(':')
-            end_parts = row['end_time'].split(':')
+            start_parts = game_row['start_time'].split(':')
+            end_parts = game_row['end_time'].split(':')
             start_minutes = int(start_parts[0]) * 60 + int(start_parts[1])
             end_minutes = int(end_parts[0]) * 60 + int(end_parts[1])
             duration = end_minutes - start_minutes
             if duration < 0:
                 duration += 24 * 60  # 日付をまたぐ場合
             return duration
-        except:
+        except (ValueError, IndexError, TypeError):
             return None
-    
+
     time_df['duration'] = time_df.apply(calc_duration, axis=1)
     time_df = time_df[time_df['duration'].notna()]
-    
+
     if not time_df.empty:
         # 選手別の統計
         player_time_stats = time_df.groupby(['player_id', 'player_name']).agg({
             'duration': ['count', 'mean', 'min', 'max']
         }).reset_index()
-        
-        player_time_stats.columns = ['player_id', 'player_name', 'games', 'avg_duration', 'min_duration', 'max_duration']
-        
+
+        player_time_stats.columns = [
+            'player_id', 'player_name', 'games', 'avg_duration', 'min_duration', 'max_duration']
+
         # 平均時間でソート
-        player_time_stats = player_time_stats.sort_values('avg_duration', ascending=True)
+        player_time_stats = player_time_stats.sort_values(
+            'avg_duration', ascending=True)
         player_time_stats.insert(0, '順位', range(1, len(player_time_stats) + 1))
-        
+
         # 時間を時:分形式に変換
         def format_duration(minutes):
             hours = int(minutes // 60)
             mins = int(minutes % 60)
             return f"{hours}:{mins:02d}"
-        
+
         # 表示用に整形
         display_df = player_time_stats[[
             '順位', 'player_name', 'games', 'avg_duration', 'min_duration', 'max_duration'
         ]].copy()
-        
+
         display_df.columns = [
             '順位', '選手名', '対局数', '平均時間', '最短時間', '最長時間'
         ]
-        
+
         display_df['平均時間'] = display_df['平均時間'].apply(format_duration)
         display_df['最短時間'] = display_df['最短時間'].apply(format_duration)
         display_df['最長時間'] = display_df['最長時間'].apply(format_duration)
-        
+
         st.dataframe(display_df, width='stretch', hide_index=True)
-        
+
         st.info("💡 対局時間は「開始時間」から「終了時間」までの所要時間です。時間が記録されている対局のみが対象となります。")
     else:
         st.info("有効な対局時間データがありません。")

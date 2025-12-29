@@ -4,6 +4,7 @@ import streamlit as st
 
 DB_PATH = "data/mleague.db"
 
+
 def hide_default_sidebar_navigation():
     """Streamlitのデフォルトサイドバーナビゲーションを非表示にする"""
     st.markdown("""
@@ -14,8 +15,10 @@ def hide_default_sidebar_navigation():
     </style>
     """, unsafe_allow_html=True)
 
+
 def get_connection():
     return sqlite3.connect(DB_PATH)
+
 
 def get_teams():
     """チームマスター情報を取得"""
@@ -24,10 +27,12 @@ def get_teams():
     conn.close()
     return df
 
+
 def get_team_colors():
     """チームIDとカラーのマッピングを取得"""
     teams_df = get_teams()
     return dict(zip(teams_df["team_id"], teams_df["color"]))
+
 
 def get_team_name(team_id, season):
     """指定シーズンのチーム名を取得"""
@@ -39,10 +44,10 @@ def get_team_name(team_id, season):
     )
     result = cursor.fetchone()
     conn.close()
-    
+
     if result:
         return result[0]
-    
+
     # 見つからない場合は最新のチーム名を返す
     conn = get_connection()
     cursor = conn.cursor()
@@ -53,6 +58,7 @@ def get_team_name(team_id, season):
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else f"Team {team_id}"
+
 
 def get_current_team_name(team_id):
     """チームの最新の名前を取得"""
@@ -66,6 +72,7 @@ def get_current_team_name(team_id):
     conn.close()
     return result[0] if result else f"Team {team_id}"
 
+
 def get_team_names_for_season(season):
     """指定シーズンの全チーム名を取得"""
     conn = get_connection()
@@ -78,6 +85,7 @@ def get_team_names_for_season(season):
     conn.close()
     return df
 
+
 def get_all_team_names():
     """全チーム名履歴を取得"""
     conn = get_connection()
@@ -89,6 +97,7 @@ def get_all_team_names():
     """, conn)
     conn.close()
     return df
+
 
 def get_season_points():
     """全シーズンポイントをチーム名付きで取得"""
@@ -107,14 +116,17 @@ def get_season_points():
     conn.close()
     return df
 
+
 def get_seasons():
     """シーズン一覧を取得"""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT season FROM team_season_points ORDER BY season DESC")
+    cursor.execute(
+        "SELECT DISTINCT season FROM team_season_points ORDER BY season DESC")
     seasons = [row[0] for row in cursor.fetchall()]
     conn.close()
     return seasons
+
 
 def get_season_data(season):
     """指定シーズンのデータを取得"""
@@ -134,6 +146,7 @@ def get_season_data(season):
     conn.close()
     return df
 
+
 def get_cumulative_points():
     """累積ポイントを取得（最新チーム名を使用）"""
     conn = get_connection()
@@ -148,11 +161,12 @@ def get_cumulative_points():
         ORDER BY total_points DESC
     """, conn)
     conn.close()
-    
+
     # 最新のチーム名を追加
     df["team_name"] = df["team_id"].apply(get_current_team_name)
     df["rank"] = range(1, len(df) + 1)
     return df
+
 
 def get_team_history(team_id):
     """チームのシーズン履歴を取得"""
@@ -171,6 +185,7 @@ def get_team_history(team_id):
     conn.close()
     return df
 
+
 def get_teams_for_display():
     """表示用のチーム一覧（最新名+色）を取得"""
     teams_df = get_teams()
@@ -187,12 +202,14 @@ def get_teams_for_display():
 
 # ========== 選手関連 ==========
 
+
 def get_players():
     """全選手を取得"""
     conn = get_connection()
     df = pd.read_sql_query("SELECT * FROM players ORDER BY player_id", conn)
     conn.close()
     return df
+
 
 def get_player(player_id):
     """選手情報を取得"""
@@ -204,6 +221,7 @@ def get_player(player_id):
     )
     conn.close()
     return df.iloc[0] if not df.empty else None
+
 
 def get_player_teams(player_id):
     """選手の所属チーム履歴を取得"""
@@ -217,6 +235,7 @@ def get_player_teams(player_id):
     """, conn, params=(player_id,))
     conn.close()
     return df
+
 
 def get_player_current_team(player_id):
     """選手の最新所属チームを取得"""
@@ -234,6 +253,7 @@ def get_player_current_team(player_id):
     conn.close()
     return result if result else (None, None)
 
+
 def get_player_season_stats(player_id):
     """選手のシーズン成績を取得"""
     conn = get_connection()
@@ -247,6 +267,7 @@ def get_player_season_stats(player_id):
     """, conn, params=(player_id,))
     conn.close()
     return df
+
 
 def get_all_player_stats_for_season(season):
     """指定シーズンの全選手成績を取得"""
@@ -274,6 +295,7 @@ def get_all_player_stats_for_season(season):
     conn.close()
     return df
 
+
 def get_players_by_team(team_id, season):
     """指定チーム・シーズンの所属選手を取得"""
     conn = get_connection()
@@ -289,14 +311,17 @@ def get_players_by_team(team_id, season):
 
 # ========== 選手成績関連（新規追加） ==========
 
+
 def get_player_seasons():
     """選手成績が登録されているシーズン一覧を取得"""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT season FROM player_season_stats ORDER BY season DESC")
+    cursor.execute(
+        "SELECT DISTINCT season FROM player_season_stats ORDER BY season DESC")
     seasons = [row[0] for row in cursor.fetchall()]
     conn.close()
     return seasons
+
 
 def get_player_season_ranking(season):
     """指定シーズンの選手ランキングを取得"""
@@ -322,10 +347,11 @@ def get_player_season_ranking(season):
         ORDER BY ps.points DESC
     """, conn, params=(season,))
     conn.close()
-    
+
     # ランクを追加
     df['rank'] = range(1, len(df) + 1)
     return df
+
 
 def get_player_cumulative_stats():
     """全選手の累積成績を取得"""
@@ -349,10 +375,10 @@ def get_player_cumulative_stats():
         ORDER BY total_points DESC
     """, conn)
     conn.close()
-    
+
     # ランクを追加
     df['rank'] = range(1, len(df) + 1)
-    
+
     # 最新所属チームを追加
     team_info = []
     for player_id in df['player_id']:
@@ -361,10 +387,11 @@ def get_player_cumulative_stats():
             'team_id': team_id,
             'team_name': team_name or '-'
         })
-    
+
     df['team_name'] = [t['team_name'] for t in team_info]
-    
+
     return df
+
 
 def get_player_history(player_id):
     """選手のシーズン履歴を取得"""
@@ -387,6 +414,7 @@ def get_player_history(player_id):
     """, conn, params=(player_id,))
     conn.close()
     return df
+
 
 def get_player_all_stats():
     """全選手の全シーズン成績を取得（推移グラフ用）"""

@@ -1,3 +1,4 @@
+import sqlite3
 import streamlit as st
 import pandas as pd
 from db import get_connection, hide_default_sidebar_navigation
@@ -48,14 +49,15 @@ with col1:
     # 利用可能なシーズンを取得
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT season FROM player_teams ORDER BY season DESC")
+    cursor.execute(
+        "SELECT DISTINCT season FROM player_teams ORDER BY season DESC")
     seasons = [row[0] for row in cursor.fetchall()]
     conn.close()
-    
+
     if not seasons:
         st.warning("選手の所属データがありません。先に「シーズン更新」または「選手管理」で選手を登録してください。")
         st.stop()
-    
+
     selected_season = st.selectbox("成績を入力するシーズンを選択", seasons)
 
 with col2:
@@ -106,7 +108,7 @@ if not players_data:
 
 # データをDataFrameに変換
 df = pd.DataFrame(players_data, columns=[
-    'player_id', 'player_name', 'team_id', 'team_name', 
+    'player_id', 'player_name', 'team_id', 'team_name',
     'games', 'points', 'penalty', 'rank_1st', 'rank_2nd', 'rank_3rd', 'rank_4th'
 ])
 
@@ -119,8 +121,9 @@ if 'stats_data' not in st.session_state or st.session_state.get('stats_season') 
 teams = df['team_name'].unique()
 
 for team_name in teams:
-    team_players = [p for p in st.session_state.stats_data if p['team_name'] == team_name]
-    
+    team_players = [
+        p for p in st.session_state.stats_data if p['team_name'] == team_name]
+
     with st.expander(f"🏢 {team_name} ({len(team_players)}名)", expanded=True):
         # ヘッダー行
         header_cols = st.columns([3, 1.2, 1.2, 1.2, 0.8, 0.8, 0.8, 0.8])
@@ -132,16 +135,16 @@ for team_name in teams:
         header_cols[5].markdown("**2位**")
         header_cols[6].markdown("**3位**")
         header_cols[7].markdown("**4位**")
-        
+
         # 各選手の入力行
         for i, player in enumerate(team_players):
             cols = st.columns([3, 1.2, 1.2, 1.2, 0.8, 0.8, 0.8, 0.8])
-            
+
             cols[0].markdown(f"**{player['player_name']}**")
-            
+
             # 入力フィールド
             player_idx = st.session_state.stats_data.index(player)
-            
+
             games = cols[1].number_input(
                 "試合数",
                 min_value=0,
@@ -150,7 +153,7 @@ for team_name in teams:
                 key=f"games_{selected_season}_{player['player_id']}",
                 label_visibility="collapsed"
             )
-            
+
             points = cols[2].number_input(
                 "最終ポイント",
                 min_value=-2000.0,
@@ -161,7 +164,7 @@ for team_name in teams:
                 key=f"points_{selected_season}_{player['player_id']}",
                 label_visibility="collapsed"
             )
-            
+
             penalty = cols[3].number_input(
                 "ペナルティ",
                 min_value=-500.0,
@@ -173,7 +176,7 @@ for team_name in teams:
                 label_visibility="collapsed",
                 help="マイナス値で入力"
             )
-            
+
             rank_1st = cols[4].number_input(
                 "1位",
                 min_value=0,
@@ -182,7 +185,7 @@ for team_name in teams:
                 key=f"rank1_{selected_season}_{player['player_id']}",
                 label_visibility="collapsed"
             )
-            
+
             rank_2nd = cols[5].number_input(
                 "2位",
                 min_value=0,
@@ -191,7 +194,7 @@ for team_name in teams:
                 key=f"rank2_{selected_season}_{player['player_id']}",
                 label_visibility="collapsed"
             )
-            
+
             rank_3rd = cols[6].number_input(
                 "3位",
                 min_value=0,
@@ -200,7 +203,7 @@ for team_name in teams:
                 key=f"rank3_{selected_season}_{player['player_id']}",
                 label_visibility="collapsed"
             )
-            
+
             rank_4th = cols[7].number_input(
                 "4位",
                 min_value=0,
@@ -209,7 +212,7 @@ for team_name in teams:
                 key=f"rank4_{selected_season}_{player['player_id']}",
                 label_visibility="collapsed"
             )
-            
+
             # セッションステートを更新
             st.session_state.stats_data[player_idx].update({
                 'games': games,
@@ -231,7 +234,7 @@ with col1:
         try:
             conn = get_connection()
             cursor = conn.cursor()
-            
+
             success_count = 0
             for player_data in st.session_state.stats_data:
                 # INSERT OR REPLACE で既存データを更新
@@ -251,13 +254,13 @@ with col1:
                     player_data['rank_4th']
                 ))
                 success_count += 1
-            
+
             conn.commit()
             conn.close()
-            
+
             st.success(f"✅ {success_count}名の成績を保存しました")
-            
-        except Exception as e:
+
+        except (sqlite3.Error, ValueError, TypeError) as e:
             st.error(f"❌ 保存中にエラーが発生しました: {str(e)}")
 
 with col2:
@@ -278,13 +281,13 @@ st.subheader("📋 入力データ確認")
 confirm_data = []
 for player_data in st.session_state.stats_data:
     # 順位回数の合計が試合数と一致するかチェック
-    total_ranks = (player_data['rank_1st'] + player_data['rank_2nd'] + 
+    total_ranks = (player_data['rank_1st'] + player_data['rank_2nd'] +
                    player_data['rank_3rd'] + player_data['rank_4th'])
     match_status = "✅" if total_ranks == player_data['games'] else "⚠️"
-    
+
     # 獲得ポイントを計算
     earned_points = player_data['points'] - player_data['penalty']
-    
+
     confirm_data.append({
         'チーム': player_data['team_name'],
         '選手名': player_data['player_name'],
@@ -342,7 +345,8 @@ for player_data in st.session_state.stats_data:
         }
     team_player_totals[team_name]['players_final_total'] += player_data['points']
     team_player_totals[team_name]['players_penalty_total'] += player_data['penalty']
-    team_player_totals[team_name]['players_earned_total'] += (player_data['points'] - player_data['penalty'])
+    team_player_totals[team_name]['players_earned_total'] += (
+        player_data['points'] - player_data['penalty'])
 
 # チームの登録スコアを取得
 conn = get_connection()
@@ -366,16 +370,16 @@ for team_id, team_name, team_points, team_penalty in team_scores:
         players_final = team_player_totals[team_name]['players_final_total']
         players_penalty = team_player_totals[team_name]['players_penalty_total']
         players_earned = team_player_totals[team_name]['players_earned_total']
-        
+
         team_earned = team_points - team_penalty
-        
+
         final_diff = team_points - players_final
         penalty_diff = team_penalty - players_penalty
         earned_diff = team_earned - players_earned
-        
+
         # 小数点誤差を考慮（0.1pt以内は整合とみなす）
         is_consistent = abs(final_diff) <= 0.1 and abs(penalty_diff) <= 0.1
-        
+
         team_check_data.append({
             'チーム名': team_name,
             'チーム最終': team_points,
@@ -386,20 +390,21 @@ for team_id, team_name, team_points, team_penalty in team_scores:
             'ペナルティ差分': penalty_diff,
             '整合性': '✅' if is_consistent else '⚠️'
         })
-        
+
         if not is_consistent:
             inconsistent_teams.append(team_name)
 
 if team_check_data:
     # 整合性サマリー
     if inconsistent_teams:
-        st.warning(f"⚠️ {len(inconsistent_teams)}チームでスコアが不整合です: {', '.join(inconsistent_teams)}")
+        st.warning(
+            f"⚠️ {len(inconsistent_teams)}チームでスコアが不整合です: {', '.join(inconsistent_teams)}")
     else:
         st.success("✅ すべてのチームでスコアが整合しています")
-    
+
     # チームスコア比較テーブル
     team_check_df = pd.DataFrame(team_check_data)
-    
+
     st.dataframe(
         team_check_df,
         hide_index=True,
@@ -413,10 +418,11 @@ if team_check_data:
             '整合性': st.column_config.TextColumn(width="small")
         }
     )
-    
+
     st.info("💡 チームスコアと選手スコア合計が一致しているかチェックします。差分が0.1pt以内は整合とみなします。")
 else:
-    st.info(f"ℹ️ {selected_season}シーズンのチームスコアが未登録です。先に「データ管理」ページでチームスコアを登録してください。")
+    st.info(
+        f"ℹ️ {selected_season}シーズンのチームスコアが未登録です。先に「データ管理」ページでチームスコアを登録してください。")
 
 # 統計情報
 st.markdown("---")
@@ -429,7 +435,8 @@ with col1:
     st.metric("総選手数", f"{total_players}名")
 
 with col2:
-    players_with_data = len([p for p in st.session_state.stats_data if p['games'] > 0])
+    players_with_data = len(
+        [p for p in st.session_state.stats_data if p['games'] > 0])
     st.metric("成績入力済み", f"{players_with_data}名")
 
 with col3:
@@ -447,12 +454,13 @@ total_earned = total_points - total_penalty
 if total_penalty != 0:
     st.markdown("---")
     st.markdown("### ペナルティ統計")
-    
+
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("総獲得ポイント", f"{total_earned:.1f}pt")
     with col2:
         st.metric("総ペナルティ", f"{total_penalty:.1f}pt")
     with col3:
-        penalty_players = len([p for p in st.session_state.stats_data if p['penalty'] != 0])
+        penalty_players = len(
+            [p for p in st.session_state.stats_data if p['penalty'] != 0])
         st.metric("ペナルティ選手数", f"{penalty_players}名")
