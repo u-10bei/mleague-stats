@@ -114,8 +114,8 @@ def format_duration(minutes):
     """分を H:MM 形式に変換"""
     if minutes is None:
         return "-"
-    hours = minutes // 60
-    mins = minutes % 60
+    hours = int(minutes // 60)
+    mins = int(minutes % 60)
     return f"{hours}:{mins:02d}"
 
 

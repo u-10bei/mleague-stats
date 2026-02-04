@@ -51,12 +51,19 @@ Mリーグの対戦結果を可視化し、チームや選手の成績を分析�
 ### 📊 コンテンツ
 
 **チーム成績**
-- **年度別ポイントランキング**: 各シーズンのチーム別成績
-- **累積ポイントランキング**: 全シーズン通算の成績
+- **年度別ランキング**: 各シーズンのチーム別成績
+- **累積ランキング**: 全シーズン通算の成績
+- **半荘別分析**: チームの対戦結果を詳細分析
 
 **選手成績**
-- **年度別選手ランキング**: 各シーズンの選手別成績
-- **累積選手ランキング**: 全シーズン通算の選手成績
+- **年度別ランキング**: 各シーズンの選手別成績
+- **累積ランキング**: 全シーズン通算の選手成績
+- **半荘別分析**: 選手の対戦成績を詳細分析
+
+**その他の分析**
+- **統計分析**: リーグ全体の統計情報
+- **連続記録**: 連勝や連敗などの連続記録
+- **対局記録**: 全試合の詳細記録
 
 ---
 
@@ -98,7 +105,7 @@ if not season_df.empty:
     with col1:
         winner = latest.iloc[0]
         st.metric(
-            label="🥇 優勝",
+            label="🥇 レギュラー１位",
             value=winner["team_name"],
             delta=f"{winner['points']:+.1f} pt"
         )
@@ -106,7 +113,7 @@ if not season_df.empty:
     with col2:
         second = latest.iloc[1]
         st.metric(
-            label="🥈 準優勝",
+            label="🥈 レギュラー２位",
             value=second["team_name"],
             delta=f"{second['points']:+.1f} pt"
         )
@@ -114,7 +121,7 @@ if not season_df.empty:
     with col3:
         third = latest.iloc[2]
         st.metric(
-            label="🥉 3位",
+            label="🥉 レギュラー３位",
             value=third["team_name"],
             delta=f"{third['points']:+.1f} pt"
         )
