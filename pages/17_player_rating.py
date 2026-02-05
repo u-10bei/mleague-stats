@@ -77,16 +77,53 @@ with tab1:
         
         for idx, row in top_10.iterrows():
             history_df = get_player_rating_history(row['player_id'], limit=50)
-            
             if not history_df.empty:
-                history_df = history_df.sort_values('game_date')
+                # 明示的に時系列昇順でソート
+                history_df = history_df.sort_values(['game_date', 'game_number', 'old_rating', 'new_rating', 'delta'])
+                # X軸: datetime + game_numberで微小加算
+                x_base = pd.to_datetime(history_df['game_date'])
+                x = x_base + pd.to_timedelta(history_df['game_number'].fillna(1) - 1, unit='m')
+                def safe_label(r):
+                    try:
+                        if pd.isna(r['game_number']):
+                            return f"{r['game_date']}"
+                        return f"{r['game_date']} 第{int(r['game_number'])}局"
+                    except Exception:
+                        return f"{r['game_date']}"
+                x_labels = history_df.apply(safe_label, axis=1)
                 fig.add_trace(go.Scatter(
-                    x=history_df['game_date'],
+                    x=x,
                     y=history_df['new_rating'],
                     mode='lines+markers',
                     name=row['player_name'],
-                    line=dict(width=2)
+                    line=dict(width=2),
+                    text=x_labels,
+                    hovertemplate='%{text}<br>レート: %{y:.1f}<extra></extra>'
                 ))
+        # X軸ラベルをticktextで表示
+        if not top_10.empty:
+            all_history = []
+            for idx, row in top_10.iterrows():
+                history_df = get_player_rating_history(row['player_id'], limit=50)
+                if not history_df.empty:
+                    history_df = history_df.sort_values(['game_date', 'game_number', 'old_rating', 'new_rating', 'delta'])
+                    x_base = pd.to_datetime(history_df['game_date'])
+                    x = x_base + pd.to_timedelta(history_df['game_number'] - 1, unit='m')
+                    def safe_label(r):
+                        try:
+                            if pd.isna(r['game_number']):
+                                return f"{r['game_date']}"
+                            return f"{r['game_date']} 第{int(r['game_number'])}局"
+                        except Exception:
+                            return f"{r['game_date']}"
+                    x_labels = history_df.apply(safe_label, axis=1)
+                    all_history.extend(list(zip(x, x_labels)))
+            if all_history:
+                ticks, labels = zip(*sorted(set(all_history)))
+                # 5個ごとに1つだけラベル表示
+                interval = 8
+                ticktext = [label if i % interval == 0 else '' for i, label in enumerate(labels)]
+                fig.update_xaxes(tickvals=list(ticks), ticktext=ticktext)
         
         fig.update_layout(
             title="レーティング推移（上位10名）",

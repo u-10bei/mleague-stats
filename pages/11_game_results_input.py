@@ -329,12 +329,12 @@ with tab_new:
     col1, col2 = st.columns([1, 3])
 
     with col1:
+
         if st.button("💾 保存", type="primary", key=f"save_button_{st.session_state.form_counter}"):
             # バリデーション（ポイント合計のみチェック）
             if abs(total_points) >= 0.1:
                 st.error("❌ ポイント合計が0ではありません。修正してください。")
             else:
-                # データベースに保存
                 try:
                     conn = get_connection()
                     cursor = conn.cursor()
@@ -367,12 +367,12 @@ with tab_new:
 
                     conn.commit()
                     conn.close()
-                    
-                    # レート自動更新を実行
+
+
+                    # レート自動更新を一括計算で共通関数に委譲
                     try:
+                        from db import update_ratings_for_game
                         game_date_str = game_date.strftime("%Y-%m-%d")
-                        
-                        # 4名の選手IDと順位を取得
                         conn = get_connection()
                         cursor = conn.cursor()
                         cursor.execute("""
@@ -380,34 +380,11 @@ with tab_new:
                             WHERE season = ? AND game_date = ? AND table_type = ? AND game_number = ?
                             ORDER BY seat_name
                         """, (selected_season, game_date_str, table_type, game_number))
-                        
                         game_records = cursor.fetchall()
-                        conn.close()
-                        
-                        # 各選手のレートを更新
-                        for player_id, rank in game_records:
-                            # 対手3名の選手IDを取得
-                            opponent_ids = [pid for pid, _ in game_records if pid != player_id]
-                            opponent_ratings = []
-                            
-                            # 対戦相手のレートを取得
-                            conn = get_connection()
-                            cursor = conn.cursor()
-                            for opp_id in opponent_ids:
-                                cursor.execute(
-                                    "SELECT COALESCE(rating, 1500.0) FROM player_ratings WHERE player_id = ?", 
-                                    (opp_id,)
-                                )
-                                result = cursor.fetchone()
-                                opponent_ratings.append(result[0] if result else 1500.0)
-                            conn.close()
-                            
-                            # レート更新
-                            update_player_rating(player_id, opponent_ratings, rank, game_date_str)
-                        
+                        player_ids = [pid for pid, _ in game_records]
+                        ranks = [rk for _, rk in game_records]
+                        update_ratings_for_game(player_ids, ranks, selected_season, game_date_str, game_number, conn=conn)
                         # rating_calculated フラグをセット
-                        conn = get_connection()
-                        cursor = conn.cursor()
                         cursor.execute("""
                             UPDATE game_results 
                             SET rating_calculated = 1 
@@ -415,9 +392,7 @@ with tab_new:
                         """, (selected_season, game_date_str, table_type, game_number))
                         conn.commit()
                         conn.close()
-                        
                         st.success("✅ 対局結果とレーティングを保存しました")
-                        
                     except Exception as e:
                         st.error(f"❌ レーティング更新時にエラーが発生しました: {str(e)}")
                         import traceback
@@ -698,17 +673,21 @@ with tab_edit:
         # 対局結果
         st.markdown("### 対局結果")
 
-        # ヘッダー行
-        header_cols = st.columns([1, 3, 1.5, 1.5])
+        # ヘッダー行（レーティング追加）
+        header_cols = st.columns([1, 3, 2.5, 1.5, 1.5])
         header_cols[0].markdown("**席**")
         header_cols[1].markdown("**選手名**")
-        header_cols[2].markdown("**獲得pt**")
-        header_cols[3].markdown("**順位**")
+        header_cols[2].markdown("**レーティング**")
+        header_cols[3].markdown("**獲得pt**")
+        header_cols[4].markdown("**順位**")
 
         # 編集データ
         edit_game_data = []
         edit_points_list = []
-
+        # レーティング履歴取得用
+        rating_histories = {}
+        conn = get_connection()
+        cursor = conn.cursor()
         for i, record in enumerate(game_records):
             record_id = record[0]
             seat = record[1]
@@ -723,11 +702,27 @@ with tab_edit:
                 if pid == player_id:
                     current_player_display = display_name
                     break
-
             if not current_player_display:
                 current_player_display = edit_player_display_names[0]
 
-            cols = st.columns([1, 3, 1.5, 1.5])
+            # レーティング履歴取得
+            cursor.execute("""
+                SELECT old_rating, new_rating FROM rating_history
+                WHERE player_id = ? AND game_date = ? AND game_number = ?
+                ORDER BY id ASC LIMIT 1
+            """, (player_id, game_date_str, game_num))
+            rating_row = cursor.fetchone()
+            if rating_row:
+                before_r, after_r = rating_row[0], rating_row[1]
+            else:
+                # 履歴がなければ現在レートを取得
+                cursor.execute("SELECT COALESCE(rating, 1500.0) FROM player_ratings WHERE player_id = ?", (player_id,))
+                r = cursor.fetchone()
+                before_r = after_r = r[0] if r else 1500.0
+
+            rating_histories[player_id] = (before_r, after_r)
+
+            cols = st.columns([1, 3, 2.5, 1.5, 1.5])
 
             with cols[0]:
                 st.markdown(f"**{seat}**")
@@ -736,13 +731,15 @@ with tab_edit:
                 edited_player = st.selectbox(
                     f"選手{i+1}",
                     edit_player_display_names,
-                    index=edit_player_display_names.index(
-                        current_player_display),
+                    index=edit_player_display_names.index(current_player_display),
                     key=f"edit_player_{i}_{selected_game_index}",
                     label_visibility="collapsed"
                 )
 
             with cols[2]:
+                st.markdown(f"{before_r:.0f} → {after_r:.0f}")
+
+            with cols[3]:
                 edited_points = st.number_input(
                     f"ポイント{i+1}",
                     min_value=-200.0,
@@ -753,13 +750,11 @@ with tab_edit:
                     key=f"edit_points_{i}_{selected_game_index}",
                     label_visibility="collapsed"
                 )
-
             edit_points_list.append(edited_points)
 
             # 順位は後で自動計算するため、一旦プレースホルダー
-            with cols[3]:
-                st.markdown(
-                    "<div style='text-align: center; padding: 8px;'>-</div>", unsafe_allow_html=True)
+            with cols[4]:
+                st.markdown("<div style='text-align: center; padding: 8px;'>-</div>", unsafe_allow_html=True)
 
             edit_game_data.append({
                 'id': record_id,
@@ -769,6 +764,7 @@ with tab_edit:
                 'points': edited_points,
                 'rank': 0  # 後で計算
             })
+        conn.close()
 
         # 順位を自動計算（獲得ポイントの高い順、同点は同着）
         points_with_indices = [(edit_points_list[i], i) for i in range(4)]
@@ -807,13 +803,15 @@ with tab_edit:
         with col2:
             st.success("✅ 順位: 自動計算完了")
 
-        # 計算された順位を表形式で表示
-        st.markdown("#### 計算された順位")
+        # 計算された順位とレーティングを表形式で表示
+        st.markdown("#### 計算された順位・レーティング")
         edit_rank_display_data = []
         for data in edit_game_data:
+            before_r, after_r = rating_histories.get(data['player_id'], (None, None))
             edit_rank_display_data.append({
                 '席': data['seat'],
                 '選手名': data['player_name'],
+                '対局前R→対局後R': f"{before_r:.0f} → {after_r:.0f}" if before_r is not None else "-",
                 '獲得pt': f"{data['points']:+.1f}",
                 '順位': f"{data['rank']}位"
             })
