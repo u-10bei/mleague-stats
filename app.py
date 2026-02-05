@@ -1,5 +1,5 @@
 import streamlit as st
-from db import get_teams_for_display, get_season_points, hide_default_sidebar_navigation
+from db import get_teams_for_display, get_season_points, show_sidebar_navigation
 
 st.set_page_config(
     page_title="Mリーグダッシュボード",
@@ -8,31 +8,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# デフォルトのサイドバーナビゲーションを非表示
-hide_default_sidebar_navigation()
-
-# サイドバーナビゲーション
-st.sidebar.title("🀄 メニュー")
-st.sidebar.page_link("app.py", label="🏠 トップページ")
-st.sidebar.markdown("### 📊 チーム成績")
-st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
-st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/10_team_game_analysis.py", label="📈 半荘別分析")
-st.sidebar.markdown("### 👤 選手成績")
-st.sidebar.page_link("pages/7_player_season_ranking.py", label="📊 年度別ランキング")
-st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/13_player_game_analysis.py", label="📈 半荘別分析")
-st.sidebar.markdown("---")
-st.sidebar.page_link("pages/14_statistical_analysis.py", label="📈 統計分析")
-st.sidebar.page_link("pages/16_streak_records.py", label="🔥 連続記録")
-st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
-st.sidebar.markdown("---")
-st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
-st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
-st.sidebar.page_link("pages/9_team_master_admin.py", label="🏢 チーム管理")
-st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
-st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
-st.sidebar.page_link("pages/11_game_results_input.py", label="🎮 半荘記録入力")
+# 共通サイドバーナビゲーションを表示
+show_sidebar_navigation()
 
 st.title("🀄 Mリーグダッシュボード")
 
@@ -64,6 +41,7 @@ Mリーグの対戦結果を可視化し、チームや選手の成績を分析�
 - **統計分析**: リーグ全体の統計情報
 - **連続記録**: 連勝や連敗などの連続記録
 - **対局記録**: 全試合の詳細記録
+- **レーティング**: Elo風レーティングシステムで選手の相対的な実力を可視化
 
 ---
 

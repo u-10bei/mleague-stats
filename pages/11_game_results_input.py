@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime, date
 import streamlit as st
 import pandas as pd
-from db import get_connection, hide_default_sidebar_navigation
+from db import get_connection, show_sidebar_navigation, update_player_rating, DB_PATH
 
 st.set_page_config(
     page_title="半荘記録入力 | Mリーグダッシュボード",
@@ -10,31 +10,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# デフォルトのサイドバーナビゲーションを非表示
-hide_default_sidebar_navigation()
-
 # サイドバーナビゲーション
-st.sidebar.title("🀄 メニュー")
-st.sidebar.page_link("app.py", label="🏠 トップページ")
-st.sidebar.markdown("### 📊 チーム成績")
-st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
-st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/10_team_game_analysis.py", label="📈 半荘別分析")
-st.sidebar.markdown("### 👤 選手成績")
-st.sidebar.page_link("pages/7_player_season_ranking.py", label="📊 年度別ランキング")
-st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/13_player_game_analysis.py", label="📈 半荘別分析")
-st.sidebar.markdown("---")
-st.sidebar.page_link("pages/14_statistical_analysis.py", label="📈 統計分析")
-st.sidebar.page_link("pages/16_streak_records.py", label="🔥 連続記録")
-st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
-st.sidebar.markdown("---")
-st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
-st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
-st.sidebar.page_link("pages/9_team_master_admin.py", label="🏢 チーム管理")
-st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
-st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
-st.sidebar.page_link("pages/11_game_results_input.py", label="🎮 半荘記録入力")
+show_sidebar_navigation()
 
 st.title("🎮 半荘記録入力")
 
@@ -275,8 +252,8 @@ with tab_new:
         with cols[3]:
             points = st.number_input(
                 f"ポイント{i+1}",
-                min_value=-100.0,
-                max_value=100.0,
+                min_value=-200.0,
+                max_value=200.0,
                 value=st.session_state.new_points[i],
                 step=0.1,
                 format="%.1f",
@@ -372,8 +349,8 @@ with tab_new:
                             INSERT INTO game_results (
                                 season, game_date, table_type, game_number,
                                 seat_name, player_id, points, rank,
-                                start_time, end_time
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                start_time, end_time, rating_calculated
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, (
                             selected_season,
                             game_date.strftime("%Y-%m-%d"),
@@ -384,13 +361,67 @@ with tab_new:
                             data['points'],
                             data['rank'],
                             start_time_db,
-                            end_time_db
+                            end_time_db,
+                            0  # rating_calculated フラグを0で初期化
                         ))
 
                     conn.commit()
                     conn.close()
-
-                    st.success("✅ 対局結果を保存しました")
+                    
+                    # レート自動更新を実行
+                    try:
+                        game_date_str = game_date.strftime("%Y-%m-%d")
+                        
+                        # 4名の選手IDと順位を取得
+                        conn = get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT player_id, rank FROM game_results
+                            WHERE season = ? AND game_date = ? AND table_type = ? AND game_number = ?
+                            ORDER BY seat_name
+                        """, (selected_season, game_date_str, table_type, game_number))
+                        
+                        game_records = cursor.fetchall()
+                        conn.close()
+                        
+                        # 各選手のレートを更新
+                        for player_id, rank in game_records:
+                            # 対手3名の選手IDを取得
+                            opponent_ids = [pid for pid, _ in game_records if pid != player_id]
+                            opponent_ratings = []
+                            
+                            # 対戦相手のレートを取得
+                            conn = get_connection()
+                            cursor = conn.cursor()
+                            for opp_id in opponent_ids:
+                                cursor.execute(
+                                    "SELECT COALESCE(rating, 1500.0) FROM player_ratings WHERE player_id = ?", 
+                                    (opp_id,)
+                                )
+                                result = cursor.fetchone()
+                                opponent_ratings.append(result[0] if result else 1500.0)
+                            conn.close()
+                            
+                            # レート更新
+                            update_player_rating(player_id, opponent_ratings, rank, game_date_str)
+                        
+                        # rating_calculated フラグをセット
+                        conn = get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE game_results 
+                            SET rating_calculated = 1 
+                            WHERE season = ? AND game_date = ? AND table_type = ? AND game_number = ?
+                        """, (selected_season, game_date_str, table_type, game_number))
+                        conn.commit()
+                        conn.close()
+                        
+                        st.success("✅ 対局結果とレーティングを保存しました")
+                        
+                    except Exception as e:
+                        st.error(f"❌ レーティング更新時にエラーが発生しました: {str(e)}")
+                        import traceback
+                        st.error(traceback.format_exc())
 
                     # フォームカウンターをインクリメント（自動的にセッション状態がリセットされる）
                     st.session_state.form_counter += 1
@@ -714,8 +745,8 @@ with tab_edit:
             with cols[2]:
                 edited_points = st.number_input(
                     f"ポイント{i+1}",
-                    min_value=-100.0,
-                    max_value=100.0,
+                    min_value=-200.0,
+                    max_value=200.0,
                     value=float(points),
                     step=0.1,
                     format="%.1f",
@@ -824,7 +855,8 @@ with tab_edit:
                                 points = ?,
                                 rank = ?,
                                 start_time = ?,
-                                end_time = ?
+                                end_time = ?,
+                                rating_calculated = 0
                             WHERE id = ?
                         """, (
                             edit_game_date.strftime("%Y-%m-%d"),
@@ -842,7 +874,8 @@ with tab_edit:
                     conn.commit()
                     conn.close()
 
-                    st.success("✅ 対局結果を更新しました")
+                    st.success("✅ 対局結果を更新しました（レーティング再計算が必要です）")
+                    st.info("⚠️ データ管理ページで「レーティング遡及計算」を実行してください")
                     st.rerun()
 
                 except (sqlite3.Error, ValueError) as e:

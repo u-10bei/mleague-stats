@@ -87,7 +87,8 @@ mleague-stats/
 │   ├── 13_player_game_analysis.py # 選手半荘別分析（月別・席順別・試合番号別）
 │   ├── 14_statistical_analysis.py # 統計分析（席別パフォーマンス）
 │   ├── 15_game_records.py         # 対局記録（試合時間）
-│   └── 16_streak_records.py       # 連続記録（連勝・連敗・連対）
+│   ├── 16_streak_records.py       # 連続記録（連勝・連敗・連対）
+│   └── 17_player_rating.py        # レーティング（Elo風レーティング分析）
 ├── app.py                         # メインアプリ（トップページ）
 ├── db.py                          # データベース接続ユーティリティ
 ├── init_db.py                     # データベース初期化スクリプト
@@ -146,9 +147,17 @@ python init_db.py --with-sample
 ### 初期化
 
 ```bash
-# 新規作成（既存データは削除されます）
+# 既存データベースがある場合：レーティング関連スキーマを追加（既存データ保持）
 python init_db.py
+
+# 新規作成（チームマスターのみ）
+python init_db.py
+
+# 新規作成（サンプルデータ付き）
+python init_db.py --with-sample
 ```
+
+**データ保持機能**: `init_db.py`は既存のデータベースを検出した場合、既存データを保持しながらレーティング関連の新しいスキーマのみを追加します。既存テーブルの `game_results` に `rating_calculated` カラムが存在しない場合は自動追加されます。
 
 ### テーブル構造
 
@@ -169,7 +178,13 @@ python init_db.py
 #### 対局記録
 | テーブル | 説明 |
 |---------|------|
-| `game_results` | 半荘記録（season, game_date, table_type, game_number, seat_name, player_id, points, rank） |
+| `game_results` | 半荘記録（season, game_date, table_type, game_number, seat_name, player_id, points, rank, rating_calculated） |
+
+#### レーティング関連
+| テーブル | 説明 |
+|---------|------|
+| `player_ratings` | 選手レーティング（player_id, rating, games, last_updated） |
+| `rating_history` | レーティング変動履歴（id, player_id, game_date, old_rating, new_rating, delta, opponent_ids） |
 
 ## 画面の使い方
 
@@ -498,6 +513,7 @@ GROUP BY table_type;
 - [x] 対局記録（試合時間の記録と分析）
 - [x] 月別ランキング推移（年度別・累積）
 - [x] 連続記録分析（連勝・連敗・連続連対・連続逆連対）
+- [x] Elo風レーティングシステム（4人麻雀用、期待順位の線形補間、自動更新と遡及計算）
 
 **技術的改善**
 - [x] Streamlit 1.44.0+ 非推奨警告の修正（use_container_width → width）

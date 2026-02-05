@@ -1,7 +1,7 @@
 import sys
 import streamlit as st
 import pandas as pd
-from db import get_connection, hide_default_sidebar_navigation
+from db import get_connection, show_sidebar_navigation
 sys.path.append("..")
 
 st.set_page_config(
@@ -9,32 +9,8 @@ st.set_page_config(
     page_icon="🀄",
     layout="wide"
 )
-
-# デフォルトのサイドバーナビゲーションを非表示
-hide_default_sidebar_navigation()
-
-# サイドバーナビゲーション
-st.sidebar.title("🀄 メニュー")
-st.sidebar.page_link("app.py", label="🏠 トップページ")
-st.sidebar.markdown("### 📊 チーム成績")
-st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
-st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/10_team_game_analysis.py", label="📈 半荘別分析")
-st.sidebar.markdown("### 👤 選手成績")
-st.sidebar.page_link("pages/7_player_season_ranking.py", label="📊 年度別ランキング")
-st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/13_player_game_analysis.py", label="📈 半荘別分析")
-st.sidebar.markdown("---")
-st.sidebar.page_link("pages/14_statistical_analysis.py", label="📈 統計分析")
-st.sidebar.page_link("pages/16_streak_records.py", label="🔥 連続記録")
-st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
-st.sidebar.markdown("---")
-st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
-st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
-st.sidebar.page_link("pages/9_team_master_admin.py", label="🏢 チーム管理")
-st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
-st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
-st.sidebar.page_link("pages/11_game_results_input.py", label="🎮 半荘記録入力")
+# 共通サイドバーナビゲーションを表示
+show_sidebar_navigation()
 
 st.title("📜 対局記録")
 
@@ -43,53 +19,7 @@ st.markdown("""
 - **試合時間記録**: 最短・最長対局のランキング
 """)
 
-# ========== データ取得 ==========
-conn = get_connection()
-cursor = conn.cursor()
-
-# 利用可能なシーズンを取得
-cursor.execute("""
-    SELECT DISTINCT season 
-    FROM game_results 
-    WHERE start_time IS NOT NULL AND end_time IS NOT NULL
-    ORDER BY season DESC
-""")
-seasons = [row[0] for row in cursor.fetchall()]
-
-if not seasons:
-    st.warning("試合時間が記録された対局データがありません。「🎮 半荘記録入力」で開始・終了時間を記録してください。")
-    conn.close()
-    st.stop()
-
-conn.close()
-
-# ========== フィルター設定 ==========
-st.markdown("---")
-st.subheader("🔍 表示期間")
-
-col1, col2 = st.columns([1, 3])
-
-with col1:
-    period_options = ["全期間"] + seasons
-    selected_period = st.selectbox("期間", period_options, key="period_select")
-
-with col2:
-    if selected_period == "全期間":
-        st.info(f"📊 全期間のデータを表示します（{len(seasons)}シーズン）")
-    else:
-        st.info(f"📊 {selected_period}シーズンのデータを表示します")
-
-# ========== 試合時間記録 ==========
-st.markdown("---")
-st.subheader("⏱️ 試合時間記録")
-
-st.markdown("""
-開始時間と終了時間が記録されている対局の中から、最短・最長対局をランキング表示します。
-""")
-
-# 対局時間を計算する関数
-
-
+# ========== 対局時間を計算する関数 ==========
 def calc_duration_minutes(start_time, end_time):
     """HH:MM形式の時刻から対局時間（分）を計算"""
     try:
@@ -119,7 +49,106 @@ def format_duration(minutes):
     return f"{hours}:{mins:02d}"
 
 
-# データ取得
+# ========== データ取得 ==========
+conn = get_connection()
+cursor = conn.cursor()
+
+# 利用可能なシーズンを取得
+cursor.execute("""
+    SELECT DISTINCT season 
+    FROM game_results 
+    WHERE start_time IS NOT NULL AND end_time IS NOT NULL
+    ORDER BY season DESC
+""")
+seasons = [row[0] for row in cursor.fetchall()]
+
+if not seasons:
+    st.warning("試合時間が記録された対局データがありません。「🎮 半荘記録入力」で開始・終了時間を記録してください。")
+    conn.close()
+    st.stop()
+
+conn.close()
+
+# 表示期間選択
+st.markdown("---")
+period_options = ["全期間"] + seasons
+selected_period = st.selectbox("期間", period_options)
+
+# データ取得: 各対局の開始/終了時刻を選択期間で取得し、選手別に集計します
+conn = get_connection()
+
+if selected_period == "全期間":
+    query = """
+        SELECT 
+            gr.player_id,
+            p.player_name,
+            gr.game_date,
+            gr.game_number,
+            gr.start_time,
+            gr.end_time
+        FROM game_results gr
+        JOIN players p ON gr.player_id = p.player_id
+        WHERE gr.start_time IS NOT NULL AND gr.end_time IS NOT NULL
+        ORDER BY gr.game_date, gr.game_number
+    """
+    time_df = pd.read_sql_query(query, conn)
+else:
+    query = """
+        SELECT 
+            gr.player_id,
+            p.player_name,
+            gr.game_date,
+            gr.game_number,
+            gr.start_time,
+            gr.end_time
+        FROM game_results gr
+        JOIN players p ON gr.player_id = p.player_id
+        WHERE gr.season = ? AND gr.start_time IS NOT NULL AND gr.end_time IS NOT NULL
+        ORDER BY gr.game_date, gr.game_number
+    """
+    time_df = pd.read_sql_query(query, conn, params=(selected_period,))
+
+conn.close()
+
+if time_df.empty:
+    st.info(f"{selected_period}の有効な対局時間データがありません。")
+else:
+    # 各行の対局時間を計算
+    def calc_duration(row):
+        return calc_duration_minutes(row['start_time'], row['end_time'])
+
+    time_df['duration'] = time_df.apply(calc_duration, axis=1)
+    time_df = time_df[time_df['duration'].notna()]
+
+    if time_df.empty:
+        st.info(f"{selected_period}の有効な対局時間データがありません。")
+    else:
+        # 選手別に集計
+        player_time_stats = time_df.groupby(['player_id', 'player_name']).agg(
+            games=('duration', 'count'),
+            avg_duration=('duration', 'mean'),
+            min_duration=('duration', 'min'),
+            max_duration=('duration', 'max')
+        ).reset_index()
+
+        player_time_stats = player_time_stats.sort_values('avg_duration', ascending=True)
+        player_time_stats.insert(0, '順位', range(1, len(player_time_stats) + 1))
+
+        display_df = player_time_stats[[
+            '順位', 'player_name', 'games', 'avg_duration', 'min_duration', 'max_duration'
+        ]].copy()
+        display_df.columns = ['順位', '選手名', '対局数', '平均時間', '最短時間', '最長時間']
+
+        display_df['平均時間'] = display_df['平均時間'].apply(format_duration)
+        display_df['最短時間'] = display_df['最短時間'].apply(format_duration)
+        display_df['最長時間'] = display_df['最長時間'].apply(format_duration)
+
+        st.dataframe(display_df, hide_index=True)
+
+        st.info("💡 対局時間は「開始時間」から「終了時間」までの所要時間です。時間が記録されている対局のみが対象となります。")
+
+st.markdown("---")
+st.caption("※ データはデータベースに登録された情報を表示しています。")
 conn = get_connection()
 
 if selected_period == "全期間":
@@ -211,7 +240,6 @@ shortest_display.insert(0, '順位', range(1, len(shortest_display) + 1))
 st.dataframe(
     shortest_display,
     hide_index=True,
-    width='stretch',
     column_config={
         '順位': st.column_config.NumberColumn(width="small"),
         '対局日': st.column_config.TextColumn(width="medium"),
@@ -251,7 +279,6 @@ longest_display.insert(0, '順位', range(1, len(longest_display) + 1))
 st.dataframe(
     longest_display,
     hide_index=True,
-    width='stretch',
     column_config={
         '順位': st.column_config.NumberColumn(width="small"),
         '対局日': st.column_config.TextColumn(width="medium"),

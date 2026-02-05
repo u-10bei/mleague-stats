@@ -2,7 +2,7 @@ import sys
 import sqlite3
 import streamlit as st
 import pandas as pd
-from db import get_connection, hide_default_sidebar_navigation
+from db import get_connection, show_sidebar_navigation
 sys.path.append("..")
 
 st.set_page_config(
@@ -11,31 +11,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# デフォルトのサイドバーナビゲーションを非表示
-hide_default_sidebar_navigation()
-
 # サイドバーナビゲーション
-st.sidebar.title("🀄 メニュー")
-st.sidebar.page_link("app.py", label="🏠 トップページ")
-st.sidebar.markdown("### 📊 チーム成績")
-st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
-st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/10_team_game_analysis.py", label="📈 半荘別分析")
-st.sidebar.markdown("### 👤 選手成績")
-st.sidebar.page_link("pages/7_player_season_ranking.py", label="📊 年度別ランキング")
-st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積ランキング")
-st.sidebar.page_link("pages/13_player_game_analysis.py", label="📈 半荘別分析")
-st.sidebar.markdown("---")
-st.sidebar.page_link("pages/14_statistical_analysis.py", label="📈 統計分析")
-st.sidebar.page_link("pages/16_streak_records.py", label="🔥 連続記録")
-st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
-st.sidebar.markdown("---")
-st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
-st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
-st.sidebar.page_link("pages/9_team_master_admin.py", label="🏢 チーム管理")
-st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
-st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
-st.sidebar.page_link("pages/11_game_results_input.py", label="🎮 半荘記録入力")
+show_sidebar_navigation()
 
 st.title("⚙️ データ管理")
 
@@ -297,3 +274,36 @@ with st.expander("⚠️ 危険な操作（データ削除）"):
             st.rerun()
         except sqlite3.Error as e:
             st.error(f"❌ エラーが発生しました: {e}")
+
+
+# ========== レーティング管理セクション ==========
+
+st.markdown("---")
+st.subheader("📊 レーティング管理")
+
+st.markdown("""
+既存の対局データからElo風レーティングを遡及計算できます。
+""")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("🔄 レーティングを初期化して遡及計算", key="rating_init_button"):
+        try:
+            from db import initialize_ratings_from_games
+            
+            with st.spinner("レーティングを計算中..."):
+                initialize_ratings_from_games()
+            
+            st.success("✅ レーティングの遡及計算が完了しました")
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ エラーが発生しました: {str(e)}")
+
+with col2:
+    st.info("""
+    ℹ️ **操作内容**
+    - 全選手のレートを1500にリセット
+    - game_resultsを時系列で処理
+    - 各対局後のレートを計算
+    """)

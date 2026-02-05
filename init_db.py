@@ -25,14 +25,23 @@ def init_database(with_sample=False):
     # データディレクトリの作成
     os.makedirs("data", exist_ok=True)
     
-    # 既存のデータベースを削除
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
-        print(f"既存のデータベース {DB_PATH} を削除しました")
+    # 既存のデータベースがあるかチェック
+    db_exists = os.path.exists(DB_PATH)
     
     # 接続を作成
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    
+    # 既存データベースがある場合はスキーマのみ追加、ない場合は全テーブルを作成
+    if db_exists:
+        print(f"既存のデータベース {DB_PATH} にスキーマを追加します")
+        _add_rating_schema(conn, cursor)
+        conn.commit()
+        print("✓ レーティング関連スキーマを追加しました")
+        conn.close()
+        return
+    else:
+        print(f"新規データベース {DB_PATH} を作成します")
     
     print("データベーステーブルを作成中...")
     
@@ -120,6 +129,57 @@ def init_database(with_sample=False):
         )
     """)
     print("✓ player_season_stats テーブルを作成しました")
+    
+    # ========== 対局記録テーブル ==========
+    
+    # 半荘記録テーブル
+    cursor.execute("""
+        CREATE TABLE game_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            season INTEGER NOT NULL,
+            game_date TEXT NOT NULL,
+            table_type TEXT,
+            game_number INTEGER,
+            seat_name TEXT NOT NULL,
+            player_id INTEGER NOT NULL,
+            points REAL NOT NULL,
+            rank INTEGER NOT NULL,
+            start_time TEXT,
+            end_time TEXT,
+            rating_calculated INTEGER DEFAULT 0,
+            FOREIGN KEY (player_id) REFERENCES players (player_id) ON DELETE CASCADE
+        )
+    """)
+    print("✓ game_results テーブルを作成しました")
+    
+    # ========== レーティング関連テーブル ==========
+    
+    # 選手レーティングテーブル
+    cursor.execute("""
+        CREATE TABLE player_ratings (
+            player_id INTEGER PRIMARY KEY,
+            rating REAL DEFAULT 1500.0,
+            games INTEGER DEFAULT 0,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (player_id) REFERENCES players (player_id) ON DELETE CASCADE
+        )
+    """)
+    print("✓ player_ratings テーブルを作成しました")
+    
+    # レーティング履歴テーブル
+    cursor.execute("""
+        CREATE TABLE rating_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id INTEGER NOT NULL,
+            game_date TEXT NOT NULL,
+            old_rating REAL NOT NULL,
+            new_rating REAL NOT NULL,
+            delta REAL NOT NULL,
+            opponent_ids TEXT,
+            FOREIGN KEY (player_id) REFERENCES players (player_id) ON DELETE CASCADE
+        )
+    """)
+    print("✓ rating_history テーブルを作成しました")
     
     print("\nチームマスターデータを投入中...")
     
@@ -285,6 +345,55 @@ def init_database(with_sample=False):
         print("  5. シーズン更新ページで2019シーズンを追加")
         print("  6. 上記を繰り返して2020, 2021...と順次追加")
     print("\n" + "="*60)
+
+def _add_rating_schema(conn, cursor):
+    """既存データベースにレーティング関連スキーマを追加"""
+    
+    # game_results テーブルに rating_calculated カラムを追加（存在しない場合）
+    cursor.execute("PRAGMA table_info(game_results)")
+    columns = {col[1] for col in cursor.fetchall()}
+    if 'rating_calculated' not in columns:
+        cursor.execute("""
+            ALTER TABLE game_results
+            ADD COLUMN rating_calculated INTEGER DEFAULT 0
+        """)
+        print("✓ game_results テーブルに rating_calculated カラムを追加しました")
+    else:
+        print("✓ game_results テーブルの rating_calculated カラムは既に存在します")
+    
+    # player_ratings テーブルを作成（存在しない場合）
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='player_ratings'")
+    if not cursor.fetchone():
+        cursor.execute("""
+            CREATE TABLE player_ratings (
+                player_id INTEGER PRIMARY KEY,
+                rating REAL DEFAULT 1500.0,
+                games INTEGER DEFAULT 0,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        print("✓ player_ratings テーブルを作成しました")
+    else:
+        print("✓ player_ratings テーブルは既に存在します")
+    
+    # rating_history テーブルを作成（存在しない場合）
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='rating_history'")
+    if not cursor.fetchone():
+        cursor.execute("""
+            CREATE TABLE rating_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_id INTEGER NOT NULL,
+                game_date TEXT NOT NULL,
+                old_rating REAL NOT NULL,
+                new_rating REAL NOT NULL,
+                delta REAL NOT NULL,
+                opponent_ids TEXT,
+                FOREIGN KEY (player_id) REFERENCES players(player_id)
+            )
+        """)
+        print("✓ rating_history テーブルを作成しました")
+    else:
+        print("✓ rating_history テーブルは既に存在します")
 
 if __name__ == "__main__":
     # コマンドライン引数をチェック

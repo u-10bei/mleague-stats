@@ -15,6 +15,33 @@ def hide_default_sidebar_navigation():
     </style>
     """, unsafe_allow_html=True)
 
+def show_sidebar_navigation():
+    """共通のサイドバーナビゲーションを表示"""
+    # デフォルトのサイドバーナビゲーションを非表示
+    hide_default_sidebar_navigation()
+
+    st.sidebar.title("🀄 メニュー")
+    st.sidebar.page_link("app.py", label="🏠 トップページ")
+    st.sidebar.markdown("### 📊 チーム成績")
+    st.sidebar.page_link("pages/1_season_ranking.py", label="📊 年度別ランキング")
+    st.sidebar.page_link("pages/2_cumulative_ranking.py", label="🏆 累積ランキング")
+    st.sidebar.page_link("pages/10_team_game_analysis.py", label="📈 半荘別分析")
+    st.sidebar.markdown("### 👤 選手成績")
+    st.sidebar.page_link("pages/7_player_season_ranking.py", label="📊 年度別ランキング")
+    st.sidebar.page_link("pages/8_player_cumulative_ranking.py", label="🏆 累積ランキング")
+    st.sidebar.page_link("pages/13_player_game_analysis.py", label="📈 半荘別分析")
+    st.sidebar.markdown("---")
+    st.sidebar.page_link("pages/14_statistical_analysis.py", label="📈 統計分析")
+    st.sidebar.page_link("pages/16_streak_records.py", label="🔥 連続記録")
+    st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
+    st.sidebar.page_link("pages/17_player_rating.py", label="📊 レーティング")
+    st.sidebar.markdown("---")
+    st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
+    st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
+    st.sidebar.page_link("pages/9_team_master_admin.py", label="🏢 チーム管理")
+    st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
+    st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
+    st.sidebar.page_link("pages/11_game_results_input.py", label="🎮 半荘記録入力")
 
 def get_connection():
     return sqlite3.connect(DB_PATH)
@@ -430,5 +457,222 @@ def get_player_all_stats():
         WHERE ps.games > 0
         ORDER BY ps.season, ps.points DESC
     """, conn)
+    conn.close()
+    return df
+
+
+# ========== Elo風レーティング計算 ==========
+
+def calculate_expected_rank_score(player_rating, opponent_ratings):
+    """
+    線形補間で期待順位スコアを計算
+    
+    4人のレート（player_rating + 3つのopponent_ratings）に基づいて、
+    対象選手の期待順位スコアを算出
+    
+    Args:
+        player_rating: 対象選手のレート
+        opponent_ratings: 対戦相手3人のレート (list of 3 values)
+    
+    Returns:
+        期待順位スコア（-3.5 〜 +4.5）
+    """
+    all_ratings = sorted([player_rating] + opponent_ratings, reverse=True)
+    player_position = all_ratings.index(player_rating)
+    
+    # 順位スコア: 1位: +4.5, 2位: +0.5, 3位: -1.5, 4位: -3.5
+    rank_scores = [4.5, 0.5, -1.5, -3.5]
+    
+    # 複数の同じレートがある場合は平均を取る
+    if player_rating in all_ratings[1:]:
+        # 対象選手と同じレートの対戦相手がいる場合、その位置のスコアを平均
+        positions = [i for i, r in enumerate(all_ratings) if r == player_rating]
+        expected_score = sum(rank_scores[i] for i in positions) / len(positions)
+    else:
+        expected_score = rank_scores[player_position]
+    
+    return expected_score
+
+
+def calculate_rating_delta(player_rating, opponent_ratings, actual_rank, K=8):
+    """
+    実績順位と期待順位の乖離からレート変動を計算
+    
+    Args:
+        player_rating: 対象選手のレート
+        opponent_ratings: 対戦相手3人のレート (list of 3 values)
+        actual_rank: 実際の順位（1, 2, 3, 4）
+        K: K値（デフォルト8）
+    
+    Returns:
+        レート変動（ΔR）
+    """
+    actual_rank_scores = {1: 4.5, 2: 0.5, 3: -1.5, 4: -3.5}
+    actual_score = actual_rank_scores[actual_rank]
+    
+    expected_score = calculate_expected_rank_score(player_rating, opponent_ratings)
+    
+    delta = K * (actual_score - expected_score)
+    return delta
+
+
+def update_player_rating(player_id, opponent_ratings, actual_rank, game_date):
+    """
+    1対局後の選手レートを更新
+    
+    Args:
+        player_id: 選手ID
+        opponent_ratings: 対戦相手3人のレート (list of 3 values)
+        actual_rank: 実際の順位（1, 2, 3, 4）
+        game_date: 対局日（YYYY-MM-DD形式）
+    
+    Returns:
+        新しいレート、レート変動
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # 現在のレートを取得
+    cursor.execute("""
+        SELECT COALESCE(rating, 1500.0) as rating, COALESCE(games, 0) as games
+        FROM player_ratings
+        WHERE player_id = ?
+    """, (player_id,))
+    
+    result = cursor.fetchone()
+    if result:
+        old_rating = result[0]
+        games = result[1]
+    else:
+        old_rating = 1500.0
+        games = 0
+    
+    # レート変動を計算
+    delta = calculate_rating_delta(old_rating, opponent_ratings, actual_rank, K=8)
+    new_rating = old_rating + delta
+    
+    # レートを更新
+    cursor.execute("""
+        INSERT OR REPLACE INTO player_ratings (player_id, rating, games, last_updated)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    """, (player_id, new_rating, games + 1))
+    
+    # 履歴を記録
+    cursor.execute("""
+        INSERT INTO rating_history (player_id, game_date, old_rating, new_rating, delta, opponent_ids)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (player_id, game_date, old_rating, new_rating, delta, ",".join(map(str, range(3)))))
+    
+    conn.commit()
+    conn.close()
+    
+    return new_rating, delta
+
+
+def initialize_ratings_from_games():
+    """
+    既存のgame_resultsから時系列でレートを遡及計算
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # 全選手のレートを1500にリセット
+    cursor.execute("DELETE FROM player_ratings")
+    cursor.execute("DELETE FROM rating_history")
+    
+    # ゲーム結果を時系列で取得
+    cursor.execute("""
+        SELECT gr.id, gr.season, gr.game_date, gr.player_id, gr.rank, 
+               GROUP_CONCAT(DISTINCT gr2.player_id) as opponent_ids
+        FROM game_results gr
+        LEFT JOIN game_results gr2 ON gr.season = gr2.season 
+            AND gr.game_date = gr2.game_date 
+            AND gr.id != gr2.id
+            AND (gr.table_type IS NULL OR gr.table_type = gr2.table_type)
+            AND (gr.game_number IS NULL OR gr.game_number = gr2.game_number)
+        GROUP BY gr.id
+        ORDER BY gr.game_date, gr.id
+    """)
+    
+    games = cursor.fetchall()
+    
+    for game_id, season, game_date, player_id, rank, opponent_ids_str in games:
+        # 対戦相手のレートを取得
+        opponent_ids = [int(x) for x in opponent_ids_str.split(',')] if opponent_ids_str else []
+        
+        opponent_ratings = []
+        for opp_id in opponent_ids[:3]:  # 最大3人
+            cursor.execute("""
+                SELECT COALESCE(rating, 1500.0) FROM player_ratings WHERE player_id = ?
+            """, (opp_id,))
+            result = cursor.fetchone()
+            if result:
+                opponent_ratings.append(result[0])
+        
+        # 対戦相手が3人未満の場合は1500で補填
+        while len(opponent_ratings) < 3:
+            opponent_ratings.append(1500.0)
+        
+        # レートを更新
+        cursor.execute("""
+            SELECT COALESCE(rating, 1500.0), COALESCE(games, 0) FROM player_ratings WHERE player_id = ?
+        """, (player_id,))
+        result = cursor.fetchone()
+        old_rating = result[0] if result else 1500.0
+        current_games = result[1] if result else 0
+        
+        delta = calculate_rating_delta(old_rating, opponent_ratings[:3], rank, K=8)
+        new_rating = old_rating + delta
+        new_games = current_games + 1
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO player_ratings (player_id, rating, games, last_updated)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        """, (player_id, new_rating, new_games))
+        
+        cursor.execute("""
+            INSERT INTO rating_history (player_id, game_date, old_rating, new_rating, delta, opponent_ids)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (player_id, game_date, old_rating, new_rating, delta, opponent_ids_str or ""))
+    
+    # rating_calculated フラグをすべて 1 に更新
+    cursor.execute("UPDATE game_results SET rating_calculated = 1")
+    
+    conn.commit()
+    conn.close()
+
+
+def get_player_ratings():
+    """全選手のレーティング情報を取得"""
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT 
+            p.player_id,
+            p.player_name,
+            pr.rating,
+            pr.games,
+            pr.last_updated
+        FROM player_ratings pr
+        JOIN players p ON pr.player_id = p.player_id
+        ORDER BY pr.rating DESC
+    """, conn)
+    conn.close()
+    return df
+
+
+def get_player_rating_history(player_id, limit=50):
+    """選手のレーティング履歴を取得"""
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT 
+            game_date,
+            old_rating,
+            new_rating,
+            delta
+        FROM rating_history
+        WHERE player_id = ?
+        ORDER BY game_date DESC
+        LIMIT ?
+    """, conn, params=(player_id, limit))
     conn.close()
     return df
