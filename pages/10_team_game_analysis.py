@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from db import get_connection, show_sidebar_navigation
 
 st.set_page_config(
@@ -555,3 +556,132 @@ with tab3:
 
     else:
         st.info("直対成績データがありません。")
+
+# ========== 曜日別チームパフォーマンス分析 ==========
+st.markdown("---")
+st.subheader("📅 曜日別チームパフォーマンス分析")
+
+st.markdown("対局の曜日によるチーム成績の傾向を分析します。")
+
+# 曜日を追加（pandas dayofweek: 0=月曜, 6=日曜）
+df_dow = df.copy()
+df_dow['dow'] = pd.to_datetime(df_dow['game_date']).dt.dayofweek
+dow_names = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
+dow_order = [k for k in range(7) if k in df_dow['dow'].values]
+dow_label = [dow_names[d] for d in dow_order]
+df_dow['dow_name'] = df_dow['dow'].map(dow_names)
+
+# チーム名一覧と色定義
+teams_list = sorted(df_dow['team_name'].unique().tolist())
+palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#17becf', '#bcbd22', '#7f7f7f']
+team_color_map = {t: palette[i % len(palette)] for i, t in enumerate(teams_list)}
+
+dtab1, dtab2, dtab3, dtab4 = st.tabs(["対局数", "平均ポイント", "平均順位", "順位割合"])
+
+with dtab1:
+    st.markdown("#### チーム別 曜日別 対局数")
+    fig_dt1 = go.Figure()
+    for team in teams_list:
+        t_df = df_dow[df_dow['team_name'] == team]
+        counts = t_df.groupby('dow')['points'].count().reindex(dow_order, fill_value=0)
+        fig_dt1.add_trace(go.Bar(
+            name=team,
+            x=dow_label,
+            y=counts.values,
+            marker_color=team_color_map[team],
+            text=counts.values,
+            textposition='outside',
+        ))
+    fig_dt1.update_layout(
+        barmode='group', xaxis_title="曜日", yaxis_title="対局数", height=420,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+    )
+    st.plotly_chart(fig_dt1, use_container_width=True)
+
+with dtab2:
+    st.markdown("#### チーム別 曜日別 平均ポイント")
+    fig_dt2 = go.Figure()
+    fig_dt2.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
+    for team in teams_list:
+        t_df = df_dow[df_dow['team_name'] == team]
+        avg_pts = t_df.groupby('dow')['points'].mean().reindex(dow_order)
+        fig_dt2.add_trace(go.Bar(
+            name=team,
+            x=dow_label,
+            y=avg_pts.values,
+            marker_color=team_color_map[team],
+            text=[f"{v:+.2f}" if pd.notna(v) else "" for v in avg_pts.values],
+            textposition='outside',
+        ))
+    fig_dt2.update_layout(
+        barmode='group', xaxis_title="曜日", yaxis_title="平均ポイント", height=420,
+        yaxis=dict(zeroline=True, zerolinecolor="gray"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+    )
+    st.plotly_chart(fig_dt2, use_container_width=True)
+
+with dtab3:
+    st.markdown("#### チーム別 曜日別 平均順位")
+    fig_dt3 = go.Figure()
+    for team in teams_list:
+        t_df = df_dow[df_dow['team_name'] == team]
+        avg_rank = t_df.groupby('dow')['rank'].mean().reindex(dow_order)
+        fig_dt3.add_trace(go.Bar(
+            name=team,
+            x=dow_label,
+            y=avg_rank.values,
+            marker_color=team_color_map[team],
+            text=[f"{v:.3f}" if pd.notna(v) else "" for v in avg_rank.values],
+            textposition='outside',
+        ))
+    fig_dt3.update_layout(
+        barmode='group', xaxis_title="曜日", yaxis_title="平均順位", height=420,
+        yaxis=dict(range=[1, 4.5], autorange=False),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+    )
+    st.plotly_chart(fig_dt3, use_container_width=True)
+
+with dtab4:
+    st.markdown("#### 曜日別 順位割合（100%積み上げ）")
+    selected_team_dow = st.selectbox("チームを選択", teams_list, key="dow_team_select")
+    t_filtered = df_dow[df_dow['team_name'] == selected_team_dow]
+    dow_stats = t_filtered.groupby('dow').agg(
+        games=('points', 'count'),
+        rank_1st=('rank', lambda x: (x == 1).sum()),
+        rank_2nd=('rank', lambda x: (x == 2).sum()),
+        rank_3rd=('rank', lambda x: (x == 3).sum()),
+        rank_4th=('rank', lambda x: (x == 4).sum()),
+    ).reindex(dow_order).reset_index()
+    dow_stats['dow_name'] = dow_stats['dow'].map(dow_names)
+    dow_stats = dow_stats.dropna(subset=['games'])
+    dow_stats['rate_1st'] = (dow_stats['rank_1st'] / dow_stats['games'] * 100).round(1)
+    dow_stats['rate_2nd'] = (dow_stats['rank_2nd'] / dow_stats['games'] * 100).round(1)
+    dow_stats['rate_3rd'] = (dow_stats['rank_3rd'] / dow_stats['games'] * 100).round(1)
+    dow_stats['rate_4th'] = (dow_stats['rank_4th'] / dow_stats['games'] * 100).round(1)
+
+    fig_dt4 = go.Figure()
+    for col, label, color in [
+        ('rate_1st', '1位', '#FFD700'),
+        ('rate_2nd', '2位', '#C0C0C0'),
+        ('rate_3rd', '3位', '#CD7F32'),
+        ('rate_4th', '4位', '#808080'),
+    ]:
+        fig_dt4.add_trace(go.Bar(
+            x=dow_stats['dow_name'],
+            y=dow_stats[col],
+            name=label,
+            marker_color=color,
+            text=dow_stats[col].apply(lambda x: f"{x:.0f}%" if pd.notna(x) else ""),
+            textposition='inside'
+        ))
+    fig_dt4.update_layout(
+        barmode='stack',
+        title=f"{selected_team_dow} — 曜日別 順位割合",
+        xaxis_title="曜日", yaxis_title="割合（%）", height=480,
+        yaxis=dict(range=[0, 100], dtick=25),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+    )
+    st.plotly_chart(fig_dt4, use_container_width=True)
+
+st.markdown("---")
+st.caption("※ データは半荘記録から集計されています。曜日は対局日の曜日です。")

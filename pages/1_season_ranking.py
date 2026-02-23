@@ -132,13 +132,16 @@ if game_count > 0:
             fig1 = go.Figure()
 
             teams = df['team_name'].unique()
+            month_names = ['1月', '2月', '3月', '4月', '5月', '6月',
+                           '7月', '8月', '9月', '10月', '11月', '12月']
 
             for team_name in sorted(teams):
                 team_data = df[df['team_name'] ==
                                team_name].sort_values('month')
+                x_labels = [month_names[m-1] for m in team_data['month']]
 
                 fig1.add_trace(go.Scatter(
-                    x=team_data['month'],
+                    x=x_labels,
                     y=team_data['total_points'],
                     mode='lines+markers',
                     name=team_name,

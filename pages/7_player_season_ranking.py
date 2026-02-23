@@ -10,6 +10,31 @@ from db import (
 )
 sys.path.append("..")
 
+
+def calc_duration_minutes(start_time, end_time):
+    """HH:MM形式の時刻から対局時間（分）を計算"""
+    try:
+        start_parts = start_time.split(':')
+        end_parts = end_time.split(':')
+        start_minutes = int(start_parts[0]) * 60 + int(start_parts[1])
+        end_minutes = int(end_parts[0]) * 60 + int(end_parts[1])
+        duration = end_minutes - start_minutes
+        if duration < 0:
+            duration += 24 * 60
+        return duration
+    except (ValueError, IndexError, TypeError):
+        return None
+
+
+def format_duration(minutes):
+    """分を H:MM 形式に変換"""
+    if minutes is None:
+        return "N/A"
+    hours = int(minutes) // 60
+    mins = int(minutes) % 60
+    return f"{hours}:{mins:02d}"
+
+
 st.set_page_config(
     page_title="年度別選手ランキング | Mリーグダッシュボード",
     page_icon="🀄",

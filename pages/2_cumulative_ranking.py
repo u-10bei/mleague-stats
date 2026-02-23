@@ -283,13 +283,11 @@ if game_count > 0:
                 # 月名を使用
                 x_labels = [month_names[m-1] for m in team_data['month']]
 
-                fig1.add_trace(go.Scatter(
+                fig1.add_trace(go.Bar(
                     x=x_labels,
                     y=team_data['total_points'],
-                    mode='lines+markers',
                     name=team_name,
-                    line=dict(color=color, width=2),
-                    marker=dict(size=8, color=color),
+                    marker_color=color,
                     hovertemplate=(
                         f'<b>{team_name}</b><br>' +
                         '月: %{x}<br>' +
@@ -302,8 +300,13 @@ if game_count > 0:
                 title="チーム別 月別累積ポイント推移（全期間）",
                 xaxis_title="月",
                 yaxis_title="累積ポイント",
+                barmode='group',
                 height=500,
                 hovermode='x unified',
+                xaxis=dict(
+                    categoryorder='array',
+                    categoryarray=[month_names[m-1] for m in months]
+                ),
                 legend=dict(
                     orientation="v",
                     yanchor="top",
@@ -361,60 +364,120 @@ if game_count > 0:
             st.dataframe(display_most, hide_index=True, width='stretch')
 
         with tab_avg_rank:
-            st.markdown("### 📈 月別平均順位推移")
+            st.markdown("### 📊 月別順位割合")
 
-            # 折れ線グラフ作成
-            fig2 = go.Figure()
+            # 個別対局データを取得
+            conn2 = get_connection()
+            raw_query = """
+                SELECT
+                    CAST(strftime('%m', gr.game_date) AS INTEGER) as month,
+                    pt.team_id,
+                    tn.team_name,
+                    gr.rank
+                FROM game_results gr
+                JOIN player_teams pt ON gr.player_id = pt.player_id AND gr.season = pt.season
+                JOIN team_names tn ON pt.team_id = tn.team_id AND pt.season = tn.season
+                ORDER BY month, tn.team_name
+            """
+            raw_df = pd.read_sql_query(raw_query, conn2)
+            conn2.close()
 
-            teams = df['team_name'].unique()
-
-            # チーム名からteam_idへのマッピングを作成
             team_name_to_id = df.drop_duplicates('team_name').set_index('team_name')[
                 'team_id'].to_dict()
 
-            for team_name in sorted(teams):
-                team_data = df[df['team_name'] ==
-                               team_name].sort_values('month')
-                team_id = team_name_to_id.get(team_name)
-                color = team_colors.get(team_id, "#888888")
+            team_options = ['全チーム比較（1位率）'] + sorted(raw_df['team_name'].unique().tolist())
+            selected_team = st.selectbox("チームを選択", team_options, key='rank_dist_team')
 
-                # 月名を使用
-                x_labels = [month_names[m-1] for m in team_data['month']]
+            rank_colors = {1: '#FFD700', 2: '#A8A8A8', 3: '#CD7F32', 4: '#FF6B6B'}
+            rank_labels = {1: '1位', 2: '2位', 3: '3位', 4: '4位'}
 
-                fig2.add_trace(go.Scatter(
-                    x=x_labels,
-                    y=team_data['avg_rank'],
-                    mode='lines+markers',
-                    name=team_name,
-                    line=dict(color=color, width=2),
-                    marker=dict(size=8, color=color),
-                    hovertemplate=(
-                        f'<b>{team_name}</b><br>' +
-                        '月: %{x}<br>' +
-                        '平均順位: %{y:.2f}<br>' +
-                        '<extra></extra>'
-                    )
-                ))
+            fig2 = go.Figure()
 
-            fig2.update_layout(
-                title="チーム別 月別平均順位推移（全期間）",
-                xaxis_title="月",
-                yaxis_title="平均順位",
-                height=500,
-                hovermode='x unified',
-                legend=dict(
-                    orientation="v",
-                    yanchor="top",
-                    y=1,
-                    xanchor="left",
-                    x=1.02
-                ),
-                yaxis=dict(
-                    autorange="reversed",  # 順位は小さいほうが良い
-                    dtick=0.5,
-                    zeroline=False
+            if selected_team == '全チーム比較（1位率）':
+                for team_name in sorted(raw_df['team_name'].unique()):
+                    team_raw = raw_df[raw_df['team_name'] == team_name]
+                    team_id = team_name_to_id.get(team_name)
+                    color = team_colors.get(team_id, "#888888")
+
+                    x_labels, y_vals = [], []
+                    for m in months:
+                        m_data = team_raw[team_raw['month'] == m]
+                        if len(m_data) > 0:
+                            rate = (m_data['rank'] == 1).sum() / len(m_data) * 100
+                            x_labels.append(month_names[m - 1])
+                            y_vals.append(rate)
+
+                    fig2.add_trace(go.Bar(
+                        x=x_labels,
+                        y=y_vals,
+                        name=team_name,
+                        marker_color=color,
+                        hovertemplate=(
+                            f'<b>{team_name}</b><br>' +
+                            '月: %{x}<br>' +
+                            '1位率: %{y:.1f}%<br>' +
+                            '<extra></extra>'
+                        )
+                    ))
+
+                fig2.update_layout(
+                    title="チーム別 月別1位率比較（全期間）",
+                    xaxis_title="月",
+                    yaxis_title="1位率 (%)",
+                    barmode='group',
+                    height=500,
+                    hovermode='x unified',
+                    xaxis=dict(
+                        categoryorder='array',
+                        categoryarray=[month_names[m - 1] for m in months]
+                    ),
+                    legend=dict(orientation="v", yanchor="top", y=1,
+                                xanchor="left", x=1.02),
+                    yaxis=dict(range=[0, 100], dtick=10)
                 )
-            )
+
+            else:
+                team_raw = raw_df[raw_df['team_name'] == selected_team]
+                team_months = sorted(team_raw['month'].unique())
+
+                for rank in [1, 2, 3, 4]:
+                    x_labels, y_vals = [], []
+                    for m in team_months:
+                        m_data = team_raw[team_raw['month'] == m]
+                        rate = (m_data['rank'] == rank).sum() / len(m_data) * 100
+                        x_labels.append(month_names[m - 1])
+                        y_vals.append(round(rate, 1))
+
+                    fig2.add_trace(go.Bar(
+                        x=x_labels,
+                        y=y_vals,
+                        name=rank_labels[rank],
+                        marker_color=rank_colors[rank],
+                        text=[f"{v:.0f}%" for v in y_vals],
+                        textposition='inside',
+                        hovertemplate=(
+                            f'<b>{rank_labels[rank]}</b><br>' +
+                            '月: %{x}<br>' +
+                            '割合: %{y:.1f}%<br>' +
+                            '<extra></extra>'
+                        )
+                    ))
+
+                fig2.update_layout(
+                    title=f"{selected_team} 月別順位割合（全期間）",
+                    xaxis_title="月",
+                    yaxis_title="割合 (%)",
+                    barmode='stack',
+                    height=480,
+                    hovermode='x unified',
+                    xaxis=dict(
+                        categoryorder='array',
+                        categoryarray=[month_names[m - 1] for m in team_months]
+                    ),
+                    legend=dict(orientation="v", yanchor="top", y=1,
+                                xanchor="left", x=1.02),
+                    yaxis=dict(range=[0, 100], dtick=25)
+                )
 
             st.plotly_chart(fig2, width='stretch')
 

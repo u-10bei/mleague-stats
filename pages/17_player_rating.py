@@ -73,57 +73,54 @@ with tab1:
         
         top_10 = rating_df.nlargest(10, 'rating')
         
-        fig = go.Figure()
-        
+        # 全選手の履歴を先に取得して、ユニークな対局キーに連番インデックスを振る
+        histories = {}
+        all_game_keys = set()
         for idx, row in top_10.iterrows():
-            history_df = get_player_rating_history(row['player_id'], limit=50)
-            if not history_df.empty:
-                # 明示的に時系列昇順でソート
-                history_df = history_df.sort_values(['game_date', 'game_number', 'old_rating', 'new_rating', 'delta'])
-                # X軸: datetime + game_numberで微小加算
-                x_base = pd.to_datetime(history_df['game_date'])
-                x = x_base + pd.to_timedelta(history_df['game_number'].fillna(1) - 1, unit='m')
-                def safe_label(r):
-                    try:
-                        if pd.isna(r['game_number']):
-                            return f"{r['game_date']}"
-                        return f"{r['game_date']} 第{int(r['game_number'])}局"
-                    except Exception:
-                        return f"{r['game_date']}"
-                x_labels = history_df.apply(safe_label, axis=1)
-                fig.add_trace(go.Scatter(
-                    x=x,
-                    y=history_df['new_rating'],
-                    mode='lines+markers',
-                    name=row['player_name'],
-                    line=dict(width=2),
-                    text=x_labels,
-                    hovertemplate='%{text}<br>レート: %{y:.1f}<extra></extra>'
-                ))
-        # X軸ラベルをticktextで表示
-        if not top_10.empty:
-            all_history = []
-            for idx, row in top_10.iterrows():
-                history_df = get_player_rating_history(row['player_id'], limit=50)
-                if not history_df.empty:
-                    history_df = history_df.sort_values(['game_date', 'game_number', 'old_rating', 'new_rating', 'delta'])
-                    x_base = pd.to_datetime(history_df['game_date'])
-                    x = x_base + pd.to_timedelta(history_df['game_number'] - 1, unit='m')
-                    def safe_label(r):
-                        try:
-                            if pd.isna(r['game_number']):
-                                return f"{r['game_date']}"
-                            return f"{r['game_date']} 第{int(r['game_number'])}局"
-                        except Exception:
-                            return f"{r['game_date']}"
-                    x_labels = history_df.apply(safe_label, axis=1)
-                    all_history.extend(list(zip(x, x_labels)))
-            if all_history:
-                ticks, labels = zip(*sorted(set(all_history)))
-                # 5個ごとに1つだけラベル表示
-                interval = 8
-                ticktext = [label if i % interval == 0 else '' for i, label in enumerate(labels)]
-                fig.update_xaxes(tickvals=list(ticks), ticktext=ticktext)
+            h = get_player_rating_history(row['player_id'], limit=50)
+            if not h.empty:
+                h = h.sort_values(['game_date', 'game_number'])
+                histories[row['player_id']] = h
+                for _, r in h.iterrows():
+                    gn = int(r['game_number']) if pd.notna(r['game_number']) else 1
+                    all_game_keys.add((str(r['game_date']), gn))
+
+        sorted_keys = sorted(all_game_keys)
+        key_to_idx = {k: i for i, k in enumerate(sorted_keys)}
+
+        fig = go.Figure()
+
+        for idx, row in top_10.iterrows():
+            if row['player_id'] not in histories:
+                continue
+            h = histories[row['player_id']]
+            x_indices = []
+            x_labels = []
+            for _, r in h.iterrows():
+                gn = int(r['game_number']) if pd.notna(r['game_number']) else 1
+                key = (str(r['game_date']), gn)
+                x_indices.append(key_to_idx[key])
+                x_labels.append(f"{r['game_date']} 第{gn}局")
+            fig.add_trace(go.Scatter(
+                x=x_indices,
+                y=h['new_rating'],
+                mode='lines+markers',
+                name=row['player_name'],
+                line=dict(width=2),
+                text=x_labels,
+                hovertemplate='%{text}<br>レート: %{y:.1f}<extra></extra>'
+            ))
+
+        # X軸のtickvals/ticktext設定（間引きあり）
+        if sorted_keys:
+            total = len(sorted_keys)
+            interval = max(1, total // 12)
+            tickvals = list(range(total))
+            ticktext = [
+                f"{k[0]} 第{k[1]}局" if i % interval == 0 else ''
+                for i, k in enumerate(sorted_keys)
+            ]
+            fig.update_xaxes(tickvals=tickvals, ticktext=ticktext)
         
         fig.update_layout(
             title="レーティング推移（上位10名）",
@@ -171,24 +168,44 @@ with tab2:
         
         if not history_df.empty:
             st.subheader("📈 レーティング履歴（直近100対局）")
-            
-            history_df = history_df.sort_values('game_date')
-            
+
+            history_df = history_df.sort_values(['game_date', 'game_number'])
+
+            # 均等間隔X軸用に連番インデックスを生成
+            x_indices = list(range(len(history_df)))
+            x_labels = [
+                f"{r['game_date']} 第{int(r['game_number'])}局"
+                if pd.notna(r['game_number']) else str(r['game_date'])
+                for _, r in history_df.iterrows()
+            ]
+
+            # X軸ラベル（間引きあり）
+            total = len(x_indices)
+            interval = max(1, total // 12)
+            tab2_ticktext = [
+                x_labels[i] if i % interval == 0 else ''
+                for i in range(total)
+            ]
+
             # グラフ
             fig = go.Figure()
-            
+
             fig.add_trace(go.Scatter(
-                x=history_df['game_date'],
+                x=x_indices,
                 y=history_df['new_rating'],
                 mode='lines+markers',
                 name='新レート',
                 line=dict(color='#1f77b4', width=2),
-                marker=dict(size=6)
+                marker=dict(size=6),
+                text=x_labels,
+                hovertemplate='%{text}<br>レート: %{y:.1f}<extra></extra>'
             ))
-            
+
+            fig.update_xaxes(tickvals=x_indices, ticktext=tab2_ticktext)
+
             fig.update_layout(
                 title=f"{player_info['player_name']} のレーティング推移",
-                xaxis_title="対局日",
+                xaxis_title="対局（試合順）",
                 yaxis_title="レート",
                 hovermode='x',
                 height=400

@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from db import get_connection, show_sidebar_navigation
 
 st.set_page_config(
@@ -524,3 +525,142 @@ with tab3:
 
     else:
         st.info("直対成績データがありません。")
+
+# ========== 曜日別選手パフォーマンス分析 ==========
+st.markdown("---")
+st.subheader("📅 曜日別選手パフォーマンス分析")
+
+st.markdown("対局の曜日による選手成績の傾向を分析します。")
+
+# 選手を選択
+players_list = sorted(df['player_name'].unique().tolist())
+selected_player_dow = st.selectbox("選手を選択", players_list, key="dow_player_select")
+
+# 曜日を追加（pandas dayofweek: 0=月曜, 6=日曜）
+df_dow_p = df[df['player_name'] == selected_player_dow].copy()
+df_dow_p['dow'] = pd.to_datetime(df_dow_p['game_date']).dt.dayofweek
+dow_names_p = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
+dow_order_p = [k for k in range(7) if k in df_dow_p['dow'].values]
+df_dow_p['dow_name'] = df_dow_p['dow'].map(dow_names_p)
+
+if df_dow_p.empty:
+    st.warning("選択した選手のデータがありません。")
+else:
+    # 集計
+    dow_stats_p = df_dow_p.groupby('dow').agg(
+        games=('points', 'count'),
+        avg_points=('points', 'mean'),
+        avg_rank=('rank', 'mean'),
+        rank_1st=('rank', lambda x: (x == 1).sum()),
+        rank_2nd=('rank', lambda x: (x == 2).sum()),
+        rank_3rd=('rank', lambda x: (x == 3).sum()),
+        rank_4th=('rank', lambda x: (x == 4).sum()),
+    ).reindex(dow_order_p).reset_index()
+    dow_stats_p['dow_name'] = dow_stats_p['dow'].map(dow_names_p)
+    dow_stats_p = dow_stats_p.dropna(subset=['games'])
+    dow_stats_p['rate_1st'] = (dow_stats_p['rank_1st'] / dow_stats_p['games'] * 100).round(1)
+    dow_stats_p['rate_2nd'] = (dow_stats_p['rank_2nd'] / dow_stats_p['games'] * 100).round(1)
+    dow_stats_p['rate_3rd'] = (dow_stats_p['rank_3rd'] / dow_stats_p['games'] * 100).round(1)
+    dow_stats_p['rate_4th'] = (dow_stats_p['rank_4th'] / dow_stats_p['games'] * 100).round(1)
+
+    dow_colors_p = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#FFB347', '#DDA0DD']
+    bar_colors_p = [dow_colors_p[d % len(dow_colors_p)] for d in dow_stats_p['dow']]
+
+    # サマリーテーブル
+    st.markdown(f"### 📊 {selected_player_dow} 曜日別統計サマリー")
+    display_p = dow_stats_p[['dow_name', 'games', 'avg_points', 'avg_rank',
+                              'rank_1st', 'rank_2nd', 'rank_3rd', 'rank_4th', 'rate_1st']].copy()
+    display_p.columns = ['曜日', '対局数', '平均pt', '平均順位', '1位', '2位', '3位', '4位', '1位率(%)']
+    display_p['平均pt'] = display_p['平均pt'].apply(lambda x: f"{x:+.2f}")
+    display_p['平均順位'] = display_p['平均順位'].apply(lambda x: f"{x:.3f}")
+    display_p['1位率(%)'] = display_p['1位率(%)'].apply(lambda x: f"{x:.1f}")
+    st.dataframe(display_p, hide_index=True, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("### 📈 視覚的比較")
+
+    ptab1, ptab2, ptab3, ptab4 = st.tabs(["対局数", "平均ポイント", "平均順位", "順位割合"])
+
+    with ptab1:
+        st.markdown(f"#### {selected_player_dow} 曜日別 対局数")
+        fig_p1 = go.Figure()
+        fig_p1.add_trace(go.Bar(
+            x=dow_stats_p['dow_name'],
+            y=dow_stats_p['games'],
+            marker_color=bar_colors_p,
+            text=dow_stats_p['games'],
+            textposition='outside',
+            showlegend=False
+        ))
+        fig_p1.update_layout(xaxis_title="曜日", yaxis_title="対局数", height=400)
+        st.plotly_chart(fig_p1, use_container_width=True)
+
+    with ptab2:
+        st.markdown(f"#### {selected_player_dow} 曜日別 平均ポイント")
+        fig_p2 = go.Figure()
+        fig_p2.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
+        fig_p2.add_trace(go.Bar(
+            x=dow_stats_p['dow_name'],
+            y=dow_stats_p['avg_points'],
+            marker_color=bar_colors_p,
+            text=dow_stats_p['avg_points'].apply(lambda x: f"{x:+.2f}"),
+            textposition='outside',
+            showlegend=False
+        ))
+        fig_p2.update_layout(
+            xaxis_title="曜日", yaxis_title="平均ポイント", height=400,
+            yaxis=dict(zeroline=True, zerolinecolor="gray")
+        )
+        st.plotly_chart(fig_p2, use_container_width=True)
+        best_p = dow_stats_p.loc[dow_stats_p['avg_points'].idxmax()]
+        worst_p = dow_stats_p.loc[dow_stats_p['avg_points'].idxmin()]
+        st.info(f"💡 平均ポイントが最も高い曜日は **{best_p['dow_name']}曜日**（{best_p['avg_points']:+.2f}pt）、最も低いのは **{worst_p['dow_name']}曜日**（{worst_p['avg_points']:+.2f}pt）です。")
+
+    with ptab3:
+        st.markdown(f"#### {selected_player_dow} 曜日別 平均順位")
+        fig_p3 = go.Figure()
+        fig_p3.add_trace(go.Bar(
+            x=dow_stats_p['dow_name'],
+            y=dow_stats_p['avg_rank'],
+            marker_color=bar_colors_p,
+            text=dow_stats_p['avg_rank'].apply(lambda x: f"{x:.3f}"),
+            textposition='outside',
+            showlegend=False
+        ))
+        fig_p3.update_layout(
+            xaxis_title="曜日", yaxis_title="平均順位", height=400,
+            yaxis=dict(range=[1, 4.5], autorange=False)
+        )
+        st.plotly_chart(fig_p3, use_container_width=True)
+        best_pr = dow_stats_p.loc[dow_stats_p['avg_rank'].idxmin()]
+        worst_pr = dow_stats_p.loc[dow_stats_p['avg_rank'].idxmax()]
+        st.info(f"💡 平均順位が最も良い曜日は **{best_pr['dow_name']}曜日**（{best_pr['avg_rank']:.3f}位）、最も悪いのは **{worst_pr['dow_name']}曜日**（{worst_pr['avg_rank']:.3f}位）です。")
+
+    with ptab4:
+        st.markdown(f"#### {selected_player_dow} 曜日別 順位割合（100%積み上げ）")
+        fig_p4 = go.Figure()
+        for col, label, color in [
+            ('rate_1st', '1位', '#FFD700'),
+            ('rate_2nd', '2位', '#C0C0C0'),
+            ('rate_3rd', '3位', '#CD7F32'),
+            ('rate_4th', '4位', '#808080'),
+        ]:
+            fig_p4.add_trace(go.Bar(
+                x=dow_stats_p['dow_name'],
+                y=dow_stats_p[col],
+                name=label,
+                marker_color=color,
+                text=dow_stats_p[col].apply(lambda x: f"{x:.0f}%" if pd.notna(x) else ""),
+                textposition='inside'
+            ))
+        fig_p4.update_layout(
+            barmode='stack',
+            title=f"{selected_player_dow} — 曜日別 順位割合",
+            xaxis_title="曜日", yaxis_title="割合（%）", height=480,
+            yaxis=dict(range=[0, 100], dtick=25),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+        )
+        st.plotly_chart(fig_p4, use_container_width=True)
+
+st.markdown("---")
+st.caption("※ データは半荘記録から集計されています。曜日は対局日の曜日です。")
