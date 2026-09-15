@@ -204,3 +204,14 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# konoui 配布DB (556MB / 読み取り専用 / 毎シーズン差し替え)
+# 取得: curl -L -O https://github.com/konoui/m-league-game-db/releases/latest/download/database.zip
+#       unzip database.zip -d data/
+data/database.sqlite3
+data/database.sqlite3-journal
+data/database.zip
+
+# 補完DB (data/mleague_local.db) は数十KBなので Git 管理する
+data/mleague_local.db-journal
+data/mleague.db-journal
