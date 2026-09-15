@@ -8,6 +8,10 @@ konoui DB (正データ) に無い情報だけを編集するページ。
     チーム名履歴      team_name_history   (年度別の名称)
     チーム略称/カラー  team_meta
     選手プロフィール   player_profile      (生年月日 / 所属団体)
+
+このページはデフォルトで無効。有効にするには次のいずれか:
+    MLEAGUE_ADMIN=1 streamlit run app.py
+    .streamlit/secrets.toml に enable_admin = true
 """
 
 import sys
@@ -15,7 +19,7 @@ import sys
 import pandas as pd
 import streamlit as st
 
-from db import get_connection, show_sidebar_navigation
+from db import get_connection, require_admin, show_sidebar_navigation
 from validate_games import (
     DURATION_MAX,
     DURATION_MIN,
@@ -34,6 +38,10 @@ st.set_page_config(
     layout="wide",
 )
 show_sidebar_navigation()
+
+# 公開環境では無効。サイドバーから外すだけでは URL 直打ちで到達できるため、
+# ページ側でも明示的に止める。
+require_admin()
 
 st.title("🛠️ 補完データ管理")
 st.caption(
@@ -189,10 +197,10 @@ with tab_time:
 
         if not out_range.empty:
             st.markdown("**要確認（範囲外）**")
-            st.dataframe(out_range, use_container_width=True, hide_index=True)
+            st.dataframe(out_range, width='stretch', hide_index=True)
         if not outlier.empty:
             st.markdown(f"**外れ値（許容 {low:.1f}〜{high:.1f} 分/局）**")
-            st.dataframe(outlier, use_container_width=True, hide_index=True)
+            st.dataframe(outlier, width='stretch', hide_index=True)
         if out_range.empty and outlier.empty:
             st.success("異常は検出されませんでした。")
 
@@ -215,7 +223,7 @@ with tab_team_name:
         """,
         conn,
     )
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width='stretch', hide_index=True)
 
     st.markdown("#### 編集")
     c1, c2 = st.columns(2)
@@ -259,7 +267,7 @@ with tab_team_meta:
         "SELECT team_id, current_name AS 現行名, short_name AS 略称,"
         "       color AS カラー, established AS 参入年"
         "  FROM teams ORDER BY team_id", conn)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width='stretch', hide_index=True)
 
     st.markdown("#### 編集")
     e_team = st.selectbox(
@@ -298,7 +306,7 @@ with tab_player:
 
     only_missing = st.checkbox("未入力のみ表示", value=False, key="pp_missing")
     view = df[df["生年月日"].isna() | df["所属団体"].isna()] if only_missing else df
-    st.dataframe(view, use_container_width=True, hide_index=True)
+    st.dataframe(view, width='stretch', hide_index=True)
 
     st.markdown("#### 編集")
     e_player = st.selectbox(

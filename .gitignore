@@ -215,3 +215,6 @@ data/database.zip
 # 補完DB (data/mleague_local.db) は数十KBなので Git 管理する
 data/mleague_local.db-journal
 data/mleague.db-journal
+
+# Streamlit のローカル秘密設定（補完データ管理の有効化フラグなど）
+.streamlit/secrets.toml
