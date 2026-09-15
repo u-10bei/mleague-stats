@@ -77,7 +77,18 @@ import sqlite3
 import pandas as pd
 import streamlit as st
 
-DB_PATH = "data/mleague.db"
+# konoui/m-league-game-db を正データとして使う。
+# get_connection() は補完DB (mleague_local.db) に接続し、konoui 配布DB を
+# `src` として ATTACH したうえで互換ビューを TEMP で構築して返す。
+from db_konoui import (  # noqa: F401
+    get_connection,
+    KONOUI_DB_PATH,
+    LOCAL_DB_PATH,
+    KonouiDatabaseNotFound,
+)
+
+# 旧 DB_PATH 互換 (書き込み先は補完DB)
+DB_PATH = LOCAL_DB_PATH
 
 
 def hide_default_sidebar_navigation():
@@ -111,16 +122,7 @@ def show_sidebar_navigation():
     st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
     st.sidebar.page_link("pages/17_player_rating.py", label="📊 レーティング")
     st.sidebar.markdown("---")
-    st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
-    st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
-    st.sidebar.page_link("pages/9_team_master_admin.py", label="🏢 チーム管理")
-    st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
-    st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
-    st.sidebar.page_link("pages/11_game_results_input.py", label="🎮 半荘記録入力")
-
-def get_connection():
-    return sqlite3.connect(DB_PATH)
-
+    st.sidebar.page_link("pages/18_local_data_admin.py", label="🛠️ 補完データ管理")
 
 def get_teams():
     """チームマスター情報を取得"""
@@ -675,8 +677,13 @@ def initialize_ratings_from_games():
         ranks = [rk for _, rk in players]
         update_ratings_for_game(player_ids, ranks, season, game_date, game_number, conn=conn)
 
-    # rating_calculated フラグをすべて 1 に更新
-    cursor.execute("UPDATE game_results SET rating_calculated = 1")
+    # rating_calculated フラグを補完テーブルへ記録する。
+    # game_results は互換ビューのため UPDATE できない。
+    cursor.execute("""
+        INSERT INTO main.rating_state (game_id, calculated)
+        SELECT game_id, 1 FROM game_results GROUP BY game_id
+        ON CONFLICT(game_id) DO UPDATE SET calculated = 1
+    """)
     conn.commit()
     conn.close()
 

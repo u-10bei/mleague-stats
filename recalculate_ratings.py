@@ -4,8 +4,7 @@
 すべての対局データから時系列でレーティングを再計算します
 """
 
-import sqlite3
-from db import DB_PATH, initialize_ratings_from_games
+from db import get_connection, initialize_ratings_from_games
 
 def recalculate_ratings():
     """レーティングを初期化して遡及計算"""
@@ -13,7 +12,7 @@ def recalculate_ratings():
     print("🔄 レーティング遡及計算を開始します")
     print("=" * 60)
     
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_connection()
     cursor = conn.cursor()
     
     # 現在の状態を確認
@@ -46,8 +45,8 @@ def recalculate_ratings():
     
     cursor.execute("""
         SELECT COUNT(*) FROM (
-            SELECT DISTINCT season, game_date, table_type, game_number 
-            FROM game_results 
+            SELECT DISTINCT season, game_date, table_type, game_number
+            FROM game_results
             WHERE rating_calculated = 1
         )
     """)

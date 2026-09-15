@@ -77,13 +77,14 @@ if not season_df.empty:
     latest = season_df[season_df["season"] == latest_season].sort_values("rank")
 
     st.subheader(f"📈 最新シーズン ({latest_season}) ハイライト")
+    st.caption("順位はレギュラー／セミファイナル／ファイナルの到達ステージを加味した最終順位です。")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
         winner = latest.iloc[0]
         st.metric(
-            label="🥇 レギュラー１位",
+            label="🥇 １位",
             value=winner["team_name"],
             delta=f"{winner['points']:+.1f} pt"
         )
@@ -91,7 +92,7 @@ if not season_df.empty:
     with col2:
         second = latest.iloc[1]
         st.metric(
-            label="🥈 レギュラー２位",
+            label="🥈 ２位",
             value=second["team_name"],
             delta=f"{second['points']:+.1f} pt"
         )
@@ -99,7 +100,7 @@ if not season_df.empty:
     with col3:
         third = latest.iloc[2]
         st.metric(
-            label="🥉 レギュラー３位",
+            label="🥉 ３位",
             value=third["team_name"],
             delta=f"{third['points']:+.1f} pt"
         )
@@ -107,4 +108,7 @@ else:
     st.info("シーズンデータがありません")
 
 st.markdown("---")
-st.caption("※ データはサンプルです。実際のMリーグ公式記録とは異なる場合があります。")
+st.caption(
+    "※ 対局データは [konoui/m-league-game-db](https://github.com/konoui/m-league-game-db) "
+    "を正データとしています。対局時間のみ公式ビューアからの OCR による補完データです。"
+)

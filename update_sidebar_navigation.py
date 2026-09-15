@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-サイドバーナビゲーション一括更新スクリプト（連続記録追加版）
+サイドバーナビゲーション一括更新スクリプト
 
-全ページのサイドバーナビゲーションに16_streak_records.pyへのリンクを追加します。
+全ページのサイドバーナビゲーションを NEW_SIDEBAR の内容で揃えます。
+通常は db.show_sidebar_navigation() が共通で描画するため、このスクリプトは
+ページ側にサイドバーを直接埋め込みたい場合のみ使います。
 """
 
 import os
@@ -24,31 +26,24 @@ st.sidebar.markdown("---")
 st.sidebar.page_link("pages/14_statistical_analysis.py", label="📈 統計分析")
 st.sidebar.page_link("pages/16_streak_records.py", label="🔥 連続記録")
 st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
+st.sidebar.page_link("pages/17_player_rating.py", label="📊 レーティング")
 st.sidebar.markdown("---")
-st.sidebar.page_link("pages/3_admin.py", label="⚙️ データ管理")
-st.sidebar.page_link("pages/4_player_admin.py", label="👤 選手管理")
-st.sidebar.page_link("pages/9_team_master_admin.py", label="🏢 チーム管理")
-st.sidebar.page_link("pages/5_season_update.py", label="🔄 シーズン更新")
-st.sidebar.page_link("pages/6_player_stats_input.py", label="📊 選手成績入力")
-st.sidebar.page_link("pages/11_game_results_input.py", label="🎮 半荘記録入力")'''
+st.sidebar.page_link("pages/18_local_data_admin.py", label="🛠️ 補完データ管理")'''
 
 # 更新対象のファイル
 TARGET_FILES = [
     "app.py",
     "pages/1_season_ranking.py",
     "pages/2_cumulative_ranking.py",
-    "pages/3_admin.py",
-    "pages/4_player_admin.py",
-    "pages/5_season_update.py",
-    "pages/6_player_stats_input.py",
     "pages/7_player_season_ranking.py",
     "pages/8_player_cumulative_ranking.py",
-    "pages/9_team_master_admin.py",
     "pages/10_team_game_analysis.py",
-    "pages/11_game_results_input.py",
     "pages/13_player_game_analysis.py",
     "pages/14_statistical_analysis.py",
     "pages/15_game_records.py",
+    "pages/16_streak_records.py",
+    "pages/17_player_rating.py",
+    "pages/18_local_data_admin.py",
 ]
 
 def find_sidebar_section(content):
@@ -89,7 +84,7 @@ def update_file(filepath):
 
 def main():
     print("=" * 70)
-    print("サイドバーナビゲーション一括更新（連続記録追加版）")
+    print("サイドバーナビゲーション一括更新")
     print("=" * 70)
     print()
     
