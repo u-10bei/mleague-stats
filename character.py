@@ -190,6 +190,17 @@ def season_axes(rows, min_games=MIN_SEASON_GAMES):
     return zscore(axis_values(per), AXES), per
 
 
+def league_raw(rows):
+    """リーグ全体をひとまとめにした実測値。シートで「平均」として並べる。
+
+    選手ごとの率を平均するのではなく、全選手の素カウントを足してから比にする。
+    出場数の少ない選手に引きずられない。
+    """
+    all_rows = rows.copy()
+    all_rows["_all"] = 0
+    return derive(combine(all_rows, ["_all"])).iloc[0]
+
+
 def career_axes(rows):
     """通算の 7 軸。
 
@@ -299,6 +310,7 @@ def build(con, vocab=None):
         "vocab": vocab,
         "season_z": s_z, "season_raw": s_per,
         "career_z": c_z, "career_raw": c_per,
+        "league_raw": league_raw(rows),
         "traits": traits_table(s_per, vocab),
         "awards": awards_table(s_per),
         "yakuman": yakuman_table(con),
@@ -346,6 +358,8 @@ def sheet(data, player_id):
         "career_z": {a: round(float(cz[a]), 2) for a in AXES},
         "career_rank": {a: rank_of(float(cz[a])) for a in AXES},
         "career_raw": {a: round(float(craw[AXIS_SOURCE[a][0]]), 2) for a in AXES},
+        "league_raw": {a: round(float(data["league_raw"][AXIS_SOURCE[a][0]]), 2)
+                       for a in AXES},
         "seasons": seasons, "titles": titles, "stars": stars,
     }
 

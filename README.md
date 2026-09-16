@@ -159,7 +159,8 @@ mleague-stats/
 │   ├── 15_game_records.py         # 対局記録（試合時間）
 │   ├── 16_streak_records.py       # 連続記録（連勝・連敗・連対）
 │   ├── 17_player_rating.py        # レーティング（Elo風）
-│   └── 18_local_data_admin.py     # 補完データ管理（既定で無効）
+│   ├── 18_local_data_admin.py     # 補完データ管理（既定で無効）
+│   └── 19_player_character_sheet.py # キャラクターシート
 ├── app.py                         # メインアプリ（トップページ）
 ├── db.py                          # データ取得ユーティリティ／管理機能の有効判定
 ├── db_konoui.py                   # ATTACH と互換ビュー構築（DB の自動選択）
@@ -690,6 +691,11 @@ python character.py            # 計算結果の要約
 python character.py 園田賢     # 1 人分のシート
 python character.py --check    # 不変条件の検査（CI で実行）
 ```
+
+画面は `pages/19_player_character_sheet.py` です。選手を選ぶと、ジョブと
+その内訳、7 軸のレーダー（実線＝通算・破線＝最新シーズン）と実測値の表、
+シーズンごとのランクととくせい、称号と ★ が並びます。ページ下部の
+「読み方」に 7 軸・ランク・ジョブ・とくせい・称号の凡例を畳んであります。
 
 ### 最小出場数
 
