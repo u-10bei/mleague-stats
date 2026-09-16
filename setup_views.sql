@@ -226,6 +226,14 @@ LEFT JOIN main.team_name_history tnh
 
 
 -- 既存 player_teams 互換。joined〜left を年度に展開。
+--
+-- left_season_year は「そのチームに在籍した最後のシーズン」を指す閉区間。
+-- 退団20件のうち17件はこの解釈と一致するが、konoui 側が退団を先行して
+-- 記録しているケース（小林剛・渋川難波・浅井堂岐 = left 2026 / 最終出場
+-- 2025）があり、そのままでは開幕したばかりのシーズンで在籍者が
+-- 4名を超えてしまう。
+-- そこで、区間の最終シーズンについてのみ「実際に出場したか」を条件に加える。
+-- 在籍中（left = 9999）の選手は出場の有無に関わらず対象のまま。
 CREATE TEMP VIEW player_teams AS
 SELECT
     pt.player_id * 10000 + ls.start_year AS id,
@@ -234,7 +242,17 @@ SELECT
     ls.start_year AS season
 FROM src.player_team pt
 JOIN src.league_season ls
-  ON ls.start_year BETWEEN pt.joined_season_year AND pt.left_season_year;
+  ON ls.start_year BETWEEN pt.joined_season_year AND pt.left_season_year
+WHERE pt.left_season_year = 9999
+   OR ls.start_year < pt.left_season_year
+   OR EXISTS (
+        SELECT 1
+        FROM src.game_player_result gpr
+        JOIN src.game g ON g.id = gpr.game_id
+        JOIN src.season_stage ss ON ss.id = g.season_stage_id
+        WHERE gpr.player_id = pt.player_id
+          AND ss.league_season_id = ls.id
+      );
 
 
 -- 既存 player_season_stats 互換。ステージ合算。

@@ -1,6 +1,12 @@
 import streamlit as st
 import pandas as pd
-from db import get_connection, get_team_colors, get_current_team_names, show_sidebar_navigation
+from db import (
+    get_connection,
+    get_team_colors,
+    get_current_team_names,
+    get_roster_player_ids,
+    show_sidebar_navigation,
+)
 
 st.set_page_config(
     page_title="連続記録 | Mリーグダッシュボード",
@@ -104,6 +110,12 @@ if selected_period == "全期間":
     df["team_name"] = df["team_id"].map(_current_names).fillna(
         df["team_id"].map(lambda i: f"Team {i}"))
 
+# 進行中の記録は在籍中の選手だけを対象にする。退団した選手は最後の対局で
+# 記録が止まっているだけで、進行中ではない。
+# 全期間なら最新シーズン、単一シーズンならそのシーズンの登録メンバーで判定する。
+roster_player_ids = get_roster_player_ids(
+    None if selected_period == "全期間" else selected_period)
+
 st.markdown("---")
 st.info(
     f"📊 データ件数: {len(df)}対局 / {df['player_name'].nunique()}選手 / {df['team_name'].nunique()}チーム")
@@ -173,6 +185,12 @@ def calculate_player_streaks(df, condition_func, streak_name):
 
     if streaks_df.empty:
         return pd.DataFrame(), pd.DataFrame()
+
+    # 在籍していない選手の記録は、最後の対局で終わっていて進行中ではない。
+    # 歴代記録側の「進行中」表示も同じ判定にそろえる。
+    retired = ~streaks_df['player_id'].isin(roster_player_ids)
+    streaks_df.loc[retired, 'is_active'] = False
+    streaks_df.loc[retired, 'current_streak'] = 0
 
     current_streaks = streaks_df[streaks_df['is_active']].copy()
 
