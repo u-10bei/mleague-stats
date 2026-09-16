@@ -1,78 +1,3 @@
-# 共通: 4人分一括レーティング計算・保存
-def update_ratings_for_game(player_ids, ranks, season, game_date, game_number, conn=None):
-    """
-    4人分のplayer_id, rank, season, game_date, game_numberを受け取り、
-    Elo式で全員分のΔR・新レートを一括計算・保存する共通関数。
-    conn: 既存コネクションを使う場合は指定（なければ内部で開閉）
-    """
-    import numpy as np
-    from collections import defaultdict
-    close_conn = False
-    if conn is None:
-        conn = get_connection()
-        close_conn = True
-    cursor = conn.cursor()
-    # 直前レート取得
-    ratings = []
-    for pid in player_ids:
-        cursor.execute("SELECT COALESCE(rating, 1500.0) FROM player_ratings WHERE player_id = ?", (pid,))
-        result = cursor.fetchone()
-        ratings.append(result[0] if result else 1500.0)
-    # 順位スコア
-    rank_to_score = {1: 4.5, 2: 0.5, 3: -1.5, 4: -3.5}
-    rank_scores = [rank_to_score[rk] for rk in ranks]
-    # 期待スコア
-    def win_expect(r1, r2):
-        return 1 / (1 + 10 ** ((r2 - r1) / 400))
-    win_probs = []
-    for i in range(4):
-        others = [ratings[j] for j in range(4) if j != i]
-        prob = np.mean([win_expect(ratings[i], r) for r in others])
-        win_probs.append(prob)
-    expected_scores = [sum([p * s for p, s in zip(win_probs, np.roll(rank_scores, -i))]) for i in range(4)]
-    mean_score = sum(expected_scores) / 4
-    corrected_scores = [s - mean_score for s in expected_scores]
-    # 実順位スコア（同順位平均対応）
-    rank_count = defaultdict(list)
-    for idx, rk in enumerate(ranks):
-        rank_count[rk].append(idx)
-    actual_scores = [0]*4
-    for rk, idxs in rank_count.items():
-        if len(idxs) == 1:
-            actual = rank_to_score[rk]
-            actual_scores[idxs[0]] = actual
-        else:
-            min_rank = rk
-            max_rank = rk + len(idxs) - 1
-            scores = [rank_to_score[r] for r in range(min_rank, max_rank+1) if r in rank_to_score]
-            actual = sum(scores) / len(scores) if scores else 0
-            for idx in idxs:
-                actual_scores[idx] = actual
-    # ΔR計算・保存
-    K = 8
-    for i in range(4):
-        old_rating = ratings[i]
-        expected_score = corrected_scores[i]
-        actual_score = actual_scores[i]
-        delta = K * (actual_score - expected_score)
-        new_rating = old_rating + delta
-        # player_ratings
-        cursor.execute("""
-            INSERT OR REPLACE INTO player_ratings (player_id, rating, games, last_updated)
-            VALUES (?, ?, COALESCE((SELECT games FROM player_ratings WHERE player_id = ?), 0) + 1, CURRENT_TIMESTAMP)
-        """, (player_ids[i], new_rating, player_ids[i]))
-        # rating_history
-        cursor.execute("""
-            INSERT INTO rating_history (player_id, game_date, old_rating, new_rating, delta, opponent_ids, season, game_number)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            player_ids[i], game_date, old_rating, new_rating, delta,
-            ','.join(str(pid) for j, pid in enumerate(player_ids) if j != i),
-            season, game_number
-        ))
-    if close_conn:
-        conn.commit()
-        conn.close()
 import os
 import sqlite3
 
@@ -628,54 +553,100 @@ def get_player_all_stats():
     return df
 
 
-# ========== Elo風レーティング計算 ==========
-
-def calculate_expected_rank_score(player_rating, opponent_ratings):
-    """
-    4人麻雀用の期待順位スコア（Elo式＋順位スコア補正）
-    Args:
-        player_rating: 対象選手のレート
-        opponent_ratings: 対戦相手3人のレート (list of 3 values)
-    Returns:
-        期待順位スコア（-3.5 〜 +4.5）
-    """
-    import numpy as np
-    all_ratings = [player_rating] + opponent_ratings
-    def win_expect(r1, r2):
-        return 1 / (1 + 10 ** ((r2 - r1) / 400))
-    win_probs = []
-    for i in range(4):
-        others = [all_ratings[j] for j in range(4) if j != i]
-        prob = np.mean([win_expect(all_ratings[i], r) for r in others])
-        win_probs.append(prob)
-    rank_scores = [4.5, 0.5, -1.5, -3.5]
-    expected_scores = [sum([p * s for p, s in zip(win_probs, np.roll(rank_scores, -i))]) for i in range(4)]
-    mean_score = sum(expected_scores) / 4
-    corrected_scores = [s - mean_score for s in expected_scores]
-    idx = 0
-    for i, r in enumerate(all_ratings):
-        if abs(r - player_rating) < 1e-8:
-            idx = i
-            break
-    return corrected_scores[idx]
+# ========== レーティング ==========
+#
+# 半荘を「3つの1対1の同時対戦」とみなすペアワイズ Elo。
+#
+#   ΔR_i = K * Σ_{j≠i} (S_ij - E_ij)
+#     S_ij : i が j より上位なら 1、同着なら 0.5、下位なら 0
+#     E_ij : 1 / (1 + 10^((R_j - R_i) / 400))
+#
+# S_ij + S_ji = 1、E_ij + E_ji = 1 なので Σ_i ΔR_i = 0（ゼロサム）。
+# 期待値がレートだけで決まり、引数の並び順にも依存しない。
+# 全員同レートなら ΔR は +1.5K / +0.5K / -0.5K / -1.5K。
+RATING_K = 16
+INITIAL_RATING = 1500.0
 
 
-def calculate_rating_delta(player_rating, opponent_ratings, actual_rank, K=8):
+def _win_expect(rating, opponent_rating):
+    """レート差から決まる、相手を上回る確率。"""
+    return 1 / (1 + 10 ** ((opponent_rating - rating) / 400))
+
+
+def calculate_expected_wins(rating, opponent_ratings):
+    """レートから決まる「上回ると期待される人数」(0〜3)。"""
+    return sum(_win_expect(rating, r) for r in opponent_ratings)
+
+
+def calculate_rating_deltas(ratings, ranks, K=RATING_K):
+    """4人分のレートと着順から ΔR を計算する。
+
+    ratings, ranks は同じ並びの長さ4のリスト。同着は 0.5 勝として扱う。
     """
-    実績順位と期待順位の乖離からレート変動を計算（K=8, 順位スコア4.5/0.5/-1.5/-3.5）
-    Args:
-        player_rating: 対象選手のレート
-        opponent_ratings: 対戦相手3人のレート (list of 3 values)
-        actual_rank: 実際の順位（1, 2, 3, 4）
-        K: K値（デフォルト8）
-    Returns:
-        レート変動（ΔR）
+    deltas = []
+    for i in range(len(ratings)):
+        delta = 0.0
+        for j in range(len(ratings)):
+            if i == j:
+                continue
+            if ranks[i] < ranks[j]:
+                actual = 1.0
+            elif ranks[i] > ranks[j]:
+                actual = 0.0
+            else:
+                actual = 0.5
+            delta += K * (actual - _win_expect(ratings[i], ratings[j]))
+        deltas.append(delta)
+    return deltas
+
+
+def calculate_rating_delta(player_rating, opponent_ratings, actual_rank, K=RATING_K):
+    """1人分の ΔR。相手の着順が不明でも、上回った人数は 4 - 着順で決まる。"""
+    actual_wins = len(opponent_ratings) + 1 - actual_rank
+    return K * (actual_wins - calculate_expected_wins(player_rating, opponent_ratings))
+
+
+# 共通: 4人分一括レーティング計算・保存
+def update_ratings_for_game(player_ids, ranks, season, game_date, game_number, conn=None):
     """
-    actual_rank_scores = {1: 4.5, 2: 0.5, 3: -1.5, 4: -3.5}
-    actual_score = actual_rank_scores[actual_rank]
-    expected_score = calculate_expected_rank_score(player_rating, opponent_ratings)
-    delta = K * (actual_score - expected_score)
-    return delta
+    4人分のplayer_id, rank, season, game_date, game_numberを受け取り、
+    ペアワイズ Elo で全員分のΔR・新レートを一括計算・保存する共通関数。
+    conn: 既存コネクションを使う場合は指定（なければ内部で開閉）
+    """
+    close_conn = False
+    if conn is None:
+        conn = get_connection()
+        close_conn = True
+    cursor = conn.cursor()
+
+    ratings = []
+    for pid in player_ids:
+        cursor.execute(
+            "SELECT COALESCE(rating, ?) FROM player_ratings WHERE player_id = ?",
+            (INITIAL_RATING, pid))
+        result = cursor.fetchone()
+        ratings.append(result[0] if result else INITIAL_RATING)
+
+    deltas = calculate_rating_deltas(ratings, ranks)
+
+    for i in range(len(player_ids)):
+        old_rating = ratings[i]
+        new_rating = old_rating + deltas[i]
+        cursor.execute("""
+            INSERT OR REPLACE INTO player_ratings (player_id, rating, games, last_updated)
+            VALUES (?, ?, COALESCE((SELECT games FROM player_ratings WHERE player_id = ?), 0) + 1, CURRENT_TIMESTAMP)
+        """, (player_ids[i], new_rating, player_ids[i]))
+        cursor.execute("""
+            INSERT INTO rating_history (player_id, game_date, old_rating, new_rating, delta, opponent_ids, season, game_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            player_ids[i], game_date, old_rating, new_rating, deltas[i],
+            ','.join(str(pid) for j, pid in enumerate(player_ids) if j != i),
+            season, game_number
+        ))
+    if close_conn:
+        conn.commit()
+        conn.close()
 
 
 def update_player_rating(player_id, opponent_ratings, actual_rank, game_date):
@@ -696,21 +667,20 @@ def update_player_rating(player_id, opponent_ratings, actual_rank, game_date):
     
     # 現在のレートを取得
     cursor.execute("""
-        SELECT COALESCE(rating, 1500.0) as rating, COALESCE(games, 0) as games
+        SELECT COALESCE(rating, ?) as rating, COALESCE(games, 0) as games
         FROM player_ratings
         WHERE player_id = ?
-    """, (player_id,))
-    
+    """, (INITIAL_RATING, player_id))
+
     result = cursor.fetchone()
     if result:
         old_rating = result[0]
         games = result[1]
     else:
-        old_rating = 1500.0
+        old_rating = INITIAL_RATING
         games = 0
     
-    # レート変動を計算（K=8, 順位スコア4.5/0.5/-1.5/-3.5）
-    delta = calculate_rating_delta(old_rating, opponent_ratings, actual_rank, K=8)
+    delta = calculate_rating_delta(old_rating, opponent_ratings, actual_rank)
     new_rating = old_rating + delta
     
     # レートを更新
@@ -738,7 +708,7 @@ def initialize_ratings_from_games():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # 全選手のレートを1500にリセット
+    # 全選手のレートを初期値にリセット
     cursor.execute("DELETE FROM player_ratings")
     cursor.execute("DELETE FROM rating_history")
     
