@@ -226,6 +226,27 @@ def get_current_team_name(team_id):
     return result[0] if result else f"Team {team_id}"
 
 
+def get_current_team_names():
+    """team_id -> 最新シーズンのチーム名のマッピング。
+
+    チーム名はシーズンごとに変わりうる（例: BEAST Japanext -> BEAST X）。
+    複数シーズンをまたいで集計するときに team_name で束ねると同一チームが
+    分裂するため、集計キーは team_id にして表示名だけここから引く。
+    """
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT tn.team_id, tn.team_name
+        FROM team_names tn
+        JOIN (
+            SELECT team_id, MAX(season) AS season
+            FROM team_names
+            GROUP BY team_id
+        ) latest ON latest.team_id = tn.team_id AND latest.season = tn.season
+    """, conn)
+    conn.close()
+    return dict(zip(df["team_id"], df["team_name"]))
+
+
 def get_team_names_for_season(season):
     """指定シーズンの全チーム名を取得"""
     conn = get_connection()

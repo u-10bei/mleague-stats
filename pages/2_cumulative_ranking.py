@@ -8,6 +8,7 @@ from db import (
     get_cumulative_points,
     get_team_history,
     get_teams,
+    get_current_team_names,
     get_connection,
     show_sidebar_navigation
 )
@@ -236,23 +237,27 @@ game_count = cursor.fetchone()[0]
 
 if game_count > 0:
     # 半荘記録からチーム別月別成績を取得（年を考慮せず月のみ）
+    # チーム名はシーズンで変わるため、集計キーは team_id のみ。
+    # 表示名は最新シーズンの名前に寄せる（例: BEAST Japanext と BEAST X を束ねる）。
     query = """
         SELECT 
             CAST(strftime('%m', gr.game_date) AS INTEGER) as month,
             pt.team_id,
-            tn.team_name,
             SUM(gr.points) as total_points,
             COUNT(*) as games,
             AVG(gr.rank) as avg_rank
         FROM game_results gr
         JOIN player_teams pt ON gr.player_id = pt.player_id AND gr.season = pt.season
-        JOIN team_names tn ON pt.team_id = tn.team_id AND pt.season = tn.season
-        GROUP BY month, pt.team_id, tn.team_name
+        GROUP BY month, pt.team_id
         ORDER BY month, total_points DESC
     """
 
     df = pd.read_sql_query(query, conn)
     conn.close()
+
+    current_names = get_current_team_names()
+    df["team_name"] = df["team_id"].map(current_names).fillna(
+        df["team_id"].map(lambda i: f"Team {i}"))
 
     if not df.empty:
         months = sorted(df['month'].unique())
@@ -372,15 +377,16 @@ if game_count > 0:
                 SELECT
                     CAST(strftime('%m', gr.game_date) AS INTEGER) as month,
                     pt.team_id,
-                    tn.team_name,
                     gr.rank
                 FROM game_results gr
                 JOIN player_teams pt ON gr.player_id = pt.player_id AND gr.season = pt.season
-                JOIN team_names tn ON pt.team_id = tn.team_id AND pt.season = tn.season
-                ORDER BY month, tn.team_name
+                ORDER BY month, pt.team_id
             """
             raw_df = pd.read_sql_query(raw_query, conn2)
             conn2.close()
+
+            raw_df["team_name"] = raw_df["team_id"].map(current_names).fillna(
+                raw_df["team_id"].map(lambda i: f"Team {i}"))
 
             team_name_to_id = df.drop_duplicates('team_name').set_index('team_name')[
                 'team_id'].to_dict()
