@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from db import get_connection, show_sidebar_navigation
+from db import get_connection, get_current_team_names, show_sidebar_navigation
 
 st.set_page_config(
     page_title="チーム半荘別分析 | Mリーグダッシュボード",
@@ -100,6 +100,13 @@ df = pd.DataFrame(results, columns=[
     'season', 'game_date', 'game_number', 'seat_name',
     'points', 'rank', 'team_id', 'team_name'
 ])
+
+# 全期間ではシーズンごとのチーム名で束ねると同一チームが分裂するため、
+# 表示名を最新シーズンの名前に寄せる（例: BEAST Japanext と BEAST X）。
+if selected_period == "全期間":
+    _current_names = get_current_team_names()
+    df["team_name"] = df["team_id"].map(_current_names).fillna(
+        df["team_id"].map(lambda i: f"Team {i}"))
 
 st.markdown("---")
 st.info(f"📊 データ件数: {len(df)}対局 / {df['team_name'].nunique()}チーム")
@@ -453,6 +460,12 @@ with tab3:
     game_df = pd.DataFrame(game_data, columns=[
         'season', 'game_date', 'game_number', 'player_id', 'points', 'team_id', 'team_name'
     ])
+
+    # 同上。全期間は最新シーズンのチーム名で束ねる。
+    if selected_period == "全期間":
+        _cn = get_current_team_names()
+        game_df["team_name"] = game_df["team_id"].map(_cn).fillna(
+            game_df["team_id"].map(lambda i: f"Team {i}"))
 
     # 直対成績を計算
     head_to_head = []

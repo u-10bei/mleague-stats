@@ -17,8 +17,10 @@ konoui DB を `src` として ATTACH し、既存アプリが参照している�
 import os
 import sqlite3
 
-# konoui 配布DB (正データ / 読み取り専用)
-KONOUI_DB_PATH = os.environ.get("KONOUI_DB_PATH", "data/database.sqlite3")
+# konoui 配布DB (正データ / 読み取り専用 / 562MB / .gitignore)
+FULL_DB_PATH = "data/database.sqlite3"
+# 配布DB からアプリが使うテーブルだけを抜き出した軽量DB (5MB / Git管理)
+SLIM_DB_PATH = "data/mleague_konoui_slim.sqlite3"
 # 補完テーブルを置く自前DB
 LOCAL_DB_PATH = os.environ.get("MLEAGUE_LOCAL_DB_PATH", "data/mleague_local.db")
 # 補完テーブル定義 + 互換ビュー定義
@@ -42,13 +44,40 @@ class KonouiDatabaseNotFound(FileNotFoundError):
     """konoui 配布DB が見つからない場合に送出する。"""
 
 
-def _konoui_missing_message(path):
+def get_konoui_db_path():
+    """使用する konoui DB のパスを決める。
+
+    1. 環境変数 KONOUI_DB_PATH が指定されていればそれ
+    2. 配布DB (562MB) があればそれ … ローカル開発向け。局・イベント単位の
+       分析もできる
+    3. 軽量DB (5MB) … Git 管理されているのでクローンしただけで動く。
+       Streamlit Community Cloud はこれを使う
+
+    どれも無ければ None を返す。
+    """
+    env = os.environ.get("KONOUI_DB_PATH")
+    if env:
+        return env
+    for path in (FULL_DB_PATH, SLIM_DB_PATH):
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def is_slim_db(path=None):
+    """軽量DB を使っているかどうか。"""
+    path = path or get_konoui_db_path()
+    return bool(path) and os.path.basename(path) == os.path.basename(SLIM_DB_PATH)
+
+
+def _konoui_missing_message():
     return (
-        f"konoui 配布DB が見つかりません: {path}\n"
-        "以下を実行して配置してください:\n"
+        f"konoui DB が見つかりません ({FULL_DB_PATH} / {SLIM_DB_PATH})\n"
+        "軽量DB はリポジトリに含まれています。配布DB を使う場合は:\n"
         "  curl -L -O https://github.com/konoui/m-league-game-db/releases/"
         "latest/download/database.zip\n"
-        "  unzip database.zip -d data/"
+        "  unzip database.zip -d data/\n"
+        "軽量DB を作り直す場合は: python build_slim_db.py"
     )
 
 
@@ -58,8 +87,9 @@ def get_connection(readonly_local=False):
     互換ビュー (game_results, players, teams, ...) は TEMP ビューとして
     この接続上に構築される。
     """
-    if not os.path.exists(KONOUI_DB_PATH):
-        raise KonouiDatabaseNotFound(_konoui_missing_message(KONOUI_DB_PATH))
+    konoui_path = get_konoui_db_path()
+    if konoui_path is None or not os.path.exists(konoui_path):
+        raise KonouiDatabaseNotFound(_konoui_missing_message())
 
     os.makedirs(os.path.dirname(LOCAL_DB_PATH) or ".", exist_ok=True)
 
@@ -70,7 +100,7 @@ def get_connection(readonly_local=False):
     con = sqlite3.connect(local_uri, uri=True)
 
     # konoui DB は正データなので必ず読み取り専用で開く
-    konoui_uri = "file:{}?mode=ro".format(KONOUI_DB_PATH)
+    konoui_uri = "file:{}?mode=ro".format(konoui_path)
     con.execute("ATTACH DATABASE ? AS src", (konoui_uri,))
 
     _setup(con)
@@ -88,7 +118,9 @@ def check():
     """接続と互換ビューの動作確認。各ビューの行数を表示する。"""
     con = get_connection()
     try:
-        print("konoui DB :", KONOUI_DB_PATH)
+        path = get_konoui_db_path()
+        print("konoui DB :", path,
+              "(軽量DB)" if is_slim_db(path) else "(配布DB)")
         print("補完DB    :", LOCAL_DB_PATH)
         print()
 

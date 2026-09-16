@@ -1,0 +1,10 @@
+# Streamlit Community Cloud / ローカル共通の設定
+[server]
+# アップロードは対局時間の CSV のみ。大きなファイルを受け取る必要はない
+maxUploadSize = 5
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"

@@ -73,7 +73,9 @@ def update_ratings_for_game(player_ids, ranks, season, game_date, game_number, c
     if close_conn:
         conn.commit()
         conn.close()
+import os
 import sqlite3
+
 import pandas as pd
 import streamlit as st
 
@@ -82,13 +84,58 @@ import streamlit as st
 # `src` として ATTACH したうえで互換ビューを TEMP で構築して返す。
 from db_konoui import (  # noqa: F401
     get_connection,
-    KONOUI_DB_PATH,
+    get_konoui_db_path,
+    is_slim_db,
+    FULL_DB_PATH,
+    SLIM_DB_PATH,
     LOCAL_DB_PATH,
     KonouiDatabaseNotFound,
 )
 
 # 旧 DB_PATH 互換 (書き込み先は補完DB)
 DB_PATH = LOCAL_DB_PATH
+
+
+def is_admin_enabled():
+    """補完データ管理ページを有効にするか。
+
+    デフォルトは無効。Streamlit Community Cloud のような公開環境へ
+    そのままデプロイしても管理機能が露出しないよう、安全側に倒している。
+
+    有効にするには次のいずれか:
+      - 環境変数      MLEAGUE_ADMIN=1 streamlit run app.py
+      - secrets.toml  enable_admin = true   (.streamlit/secrets.toml)
+
+    公開環境では書き込んでもコンテナ再起動で消えるため、
+    そもそも補完データ管理を出す意味がない。
+    """
+    env = os.environ.get("MLEAGUE_ADMIN")
+    if env is not None:
+        return env.strip().lower() in ("1", "true", "yes", "on")
+    try:
+        return bool(st.secrets.get("enable_admin", False))
+    except Exception:
+        # secrets.toml が無い環境では例外になる
+        return False
+
+
+def require_admin():
+    """補完データ管理ページの先頭で呼ぶガード。
+
+    サイドバーからリンクを外すだけでは URL 直打ちで到達できてしまうため、
+    ページ側でも明示的に止める。
+    """
+    if is_admin_enabled():
+        return
+    st.title("🔒 補完データ管理は無効です")
+    st.info(
+        "このページは公開環境では無効化されています。\n\n"
+        "ローカルで有効にするには環境変数を付けて起動してください:\n"
+        "```bash\n"
+        "MLEAGUE_ADMIN=1 streamlit run app.py\n"
+        "```"
+    )
+    st.stop()
 
 
 def hide_default_sidebar_navigation():
@@ -121,8 +168,10 @@ def show_sidebar_navigation():
     st.sidebar.page_link("pages/16_streak_records.py", label="🔥 連続記録")
     st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
     st.sidebar.page_link("pages/17_player_rating.py", label="📊 レーティング")
-    st.sidebar.markdown("---")
-    st.sidebar.page_link("pages/18_local_data_admin.py", label="🛠️ 補完データ管理")
+    if is_admin_enabled():
+        st.sidebar.markdown("---")
+        st.sidebar.page_link("pages/18_local_data_admin.py",
+                             label="🛠️ 補完データ管理")
 
 def get_teams():
     """チームマスター情報を取得"""
@@ -175,6 +224,27 @@ def get_current_team_name(team_id):
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else f"Team {team_id}"
+
+
+def get_current_team_names():
+    """team_id -> 最新シーズンのチーム名のマッピング。
+
+    チーム名はシーズンごとに変わりうる（例: BEAST Japanext -> BEAST X）。
+    複数シーズンをまたいで集計するときに team_name で束ねると同一チームが
+    分裂するため、集計キーは team_id にして表示名だけここから引く。
+    """
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT tn.team_id, tn.team_name
+        FROM team_names tn
+        JOIN (
+            SELECT team_id, MAX(season) AS season
+            FROM team_names
+            GROUP BY team_id
+        ) latest ON latest.team_id = tn.team_id AND latest.season = tn.season
+    """, conn)
+    conn.close()
+    return dict(zip(df["team_id"], df["team_name"]))
 
 
 def get_team_names_for_season(season):

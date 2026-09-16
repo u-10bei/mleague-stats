@@ -1,0 +1,63 @@
+name: CI
+
+# Streamlit Community Cloud は main への push で自動再デプロイされる。
+# デプロイ前に、同梱している軽量DB でアプリが成立することを確認する。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: 依存関係をインストール
+        run: pip install -r requirements.txt
+
+      - name: 軽量DB の中身を確認
+        run: python build_slim_db.py --check
+
+      - name: 互換ビューを構築
+        run: python db_konoui.py
+
+      - name: 全試合の整合性を検証
+        run: python validate_games.py
+
+      - name: 全ページが読み込めることを確認
+        env:
+          PYTHONPATH: .
+        run: |
+          fail=0
+          for f in app.py pages/*.py; do
+            if out=$(timeout 300 python3 "$f" 2>&1); then
+              echo "OK: $f"
+            else
+              echo "NG: $f"
+              echo "$out" | tail -20
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: 補完データ管理が既定で無効であることを確認
+        run: |
+          python - <<'PY'
+          import os, sys
+          os.environ.pop("MLEAGUE_ADMIN", None)
+          import db
+          if db.is_admin_enabled():
+              sys.exit("補完データ管理が既定で有効になっている（公開環境で露出する）")
+          os.environ["MLEAGUE_ADMIN"] = "1"
+          if not db.is_admin_enabled():
+              sys.exit("MLEAGUE_ADMIN=1 で有効にならない")
+          print("既定で無効 / 環境変数で有効化できる")
+          PY

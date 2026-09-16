@@ -8,6 +8,10 @@ konoui DB (正データ) に無い情報だけを編集するページ。
     チーム名履歴      team_name_history   (年度別の名称)
     チーム略称/カラー  team_meta
     選手プロフィール   player_profile      (生年月日 / 所属団体)
+
+このページはデフォルトで無効。有効にするには次のいずれか:
+    MLEAGUE_ADMIN=1 streamlit run app.py
+    .streamlit/secrets.toml に enable_admin = true
 """
 
 import sys
@@ -15,7 +19,7 @@ import sys
 import pandas as pd
 import streamlit as st
 
-from db import get_connection, show_sidebar_navigation
+from db import get_connection, require_admin, show_sidebar_navigation
 from validate_games import (
     DURATION_MAX,
     DURATION_MIN,
@@ -34,6 +38,10 @@ st.set_page_config(
     layout="wide",
 )
 show_sidebar_navigation()
+
+# 公開環境では無効。サイドバーから外すだけでは URL 直打ちで到達できるため、
+# ページ側でも明示的に止める。
+require_admin()
 
 st.title("🛠️ 補完データ管理")
 st.caption(
@@ -116,12 +124,17 @@ with tab_time:
         sel_game = st.selectbox(
             "試合", list(labels), format_func=lambda g: labels[g], key="time_game")
 
-        cur = games[games["game_id"] == sel_game].iloc[0]
+        cur_game = games[games["game_id"] == sel_game].iloc[0]
         c1, c2 = st.columns(2)
+        # key に試合を含める。含めないと試合を切り替えても入力欄が
+        # 前の試合の値のままになる (key 付きウィジェットは value より
+        # session_state が優先されるため)。
         start = c1.text_input(
-            "開始時刻 (HH:MM)", value=cur["start_time"] or "", key="time_start")
+            "開始時刻 (HH:MM)", value=cur_game["start_time"] or "",
+            key=f"time_start_{sel_game}")
         end = c2.text_input(
-            "終了時刻 (HH:MM)", value=cur["end_time"] or "", key="time_end")
+            "終了時刻 (HH:MM)", value=cur_game["end_time"] or "",
+            key=f"time_end_{sel_game}")
 
         if start and end:
             d = duration_minutes(start, end)
@@ -189,10 +202,10 @@ with tab_time:
 
         if not out_range.empty:
             st.markdown("**要確認（範囲外）**")
-            st.dataframe(out_range, use_container_width=True, hide_index=True)
+            st.dataframe(out_range, width='stretch', hide_index=True)
         if not outlier.empty:
             st.markdown(f"**外れ値（許容 {low:.1f}〜{high:.1f} 分/局）**")
-            st.dataframe(outlier, use_container_width=True, hide_index=True)
+            st.dataframe(outlier, width='stretch', hide_index=True)
         if out_range.empty and outlier.empty:
             st.success("異常は検出されませんでした。")
 
@@ -203,7 +216,7 @@ with tab_team_name:
     st.caption("konoui DB は現行名しか持たないため、年度別の名称を自前で持ちます。"
                "自前履歴があればそれを優先し、無ければ konoui の現行名を表示します。")
 
-    df = pd.read_sql_query(
+    tn_df = pd.read_sql_query(
         """
         SELECT tn.season, tn.team_id, t.current_name AS 現行名,
                h.team_name AS 自前履歴, tn.team_name AS 表示名
@@ -215,19 +228,21 @@ with tab_team_name:
         """,
         conn,
     )
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(tn_df, width='stretch', hide_index=True)
 
     st.markdown("#### 編集")
     c1, c2 = st.columns(2)
-    seasons_tn = sorted(df["season"].unique(), reverse=True)
+    seasons_tn = sorted(tn_df["season"].unique(), reverse=True)
     e_season = c1.selectbox("シーズン", seasons_tn, key="tn_season")
-    rows = df[df["season"] == e_season]
+    tn_rows = tn_df[tn_df["season"] == e_season]
     e_team = c2.selectbox(
-        "チーム", rows["team_id"].tolist(),
-        format_func=lambda t: rows[rows["team_id"] == t]["現行名"].iloc[0],
+        "チーム", tn_rows["team_id"].tolist(),
+        format_func=lambda t, _r=tn_rows: _r[_r["team_id"] == t]["現行名"].iloc[0],
         key="tn_team")
-    cur_name = rows[rows["team_id"] == e_team]["表示名"].iloc[0]
-    new_name = st.text_input("そのシーズンのチーム名", value=cur_name, key="tn_name")
+    cur_name = tn_rows[tn_rows["team_id"] == e_team]["表示名"].iloc[0]
+    # key にシーズンとチームを含める (理由は対局時間タブと同じ)
+    new_name = st.text_input("そのシーズンのチーム名", value=cur_name,
+                             key=f"tn_name_{e_season}_{e_team}")
 
     c1, c2 = st.columns(2)
     if c1.button("保存", key="tn_save"):
@@ -255,22 +270,25 @@ with tab_team_meta:
     st.subheader("チーム略称 / カラー")
     st.caption("グラフの凡例と色に使います。未設定のチームは現行名と灰色で表示されます。")
 
-    df = pd.read_sql_query(
+    tm_df = pd.read_sql_query(
         "SELECT team_id, current_name AS 現行名, short_name AS 略称,"
         "       color AS カラー, established AS 参入年"
         "  FROM teams ORDER BY team_id", conn)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(tm_df, width='stretch', hide_index=True)
 
     st.markdown("#### 編集")
     e_team = st.selectbox(
-        "チーム", df["team_id"].tolist(),
-        format_func=lambda t: df[df["team_id"] == t]["現行名"].iloc[0],
+        "チーム", tm_df["team_id"].tolist(),
+        format_func=lambda t, _d=tm_df: _d[_d["team_id"] == t]["現行名"].iloc[0],
         key="tm_team")
-    cur = df[df["team_id"] == e_team].iloc[0]
+    cur_team = tm_df[tm_df["team_id"] == e_team].iloc[0]
 
     c1, c2 = st.columns(2)
-    short_name = c1.text_input("略称", value=cur["略称"] or "", key="tm_short")
-    color = c2.color_picker("カラー", value=cur["カラー"] or "#888888", key="tm_color")
+    # key にチームを含める (理由は対局時間タブと同じ)
+    short_name = c1.text_input("略称", value=cur_team["略称"] or "",
+                               key=f"tm_short_{e_team}")
+    color = c2.color_picker("カラー", value=cur_team["カラー"] or "#888888",
+                            key=f"tm_color_{e_team}")
 
     if st.button("保存", key="tm_save"):
         conn.execute(
@@ -291,26 +309,30 @@ with tab_player:
     st.caption("氏名・かな・所属チームは konoui DB が正データです。"
                "ここでは生年月日と所属プロ団体だけを編集します。")
 
-    df = pd.read_sql_query(
+    pp_df = pd.read_sql_query(
         "SELECT player_id, player_name AS 氏名, player_name_kana AS かな,"
         "       birth_date AS 生年月日, pro_org AS 所属団体"
         "  FROM players ORDER BY player_id", conn)
 
     only_missing = st.checkbox("未入力のみ表示", value=False, key="pp_missing")
-    view = df[df["生年月日"].isna() | df["所属団体"].isna()] if only_missing else df
-    st.dataframe(view, use_container_width=True, hide_index=True)
+    view = (pp_df[pp_df["生年月日"].isna() | pp_df["所属団体"].isna()]
+            if only_missing else pp_df)
+    st.dataframe(view, width='stretch', hide_index=True)
 
     st.markdown("#### 編集")
     e_player = st.selectbox(
-        "選手", df["player_id"].tolist(),
-        format_func=lambda p: df[df["player_id"] == p]["氏名"].iloc[0],
+        "選手", pp_df["player_id"].tolist(),
+        format_func=lambda p, _d=pp_df: _d[_d["player_id"] == p]["氏名"].iloc[0],
         key="pp_player")
-    cur = df[df["player_id"] == e_player].iloc[0]
+    cur_player = pp_df[pp_df["player_id"] == e_player].iloc[0]
 
     c1, c2 = st.columns(2)
+    # key に選手を含める (理由は対局時間タブと同じ)
     birth = c1.text_input("生年月日 (YYYY-MM-DD)",
-                          value=cur["生年月日"] or "", key="pp_birth")
-    org = c2.text_input("所属プロ団体", value=cur["所属団体"] or "", key="pp_org")
+                          value=cur_player["生年月日"] or "",
+                          key=f"pp_birth_{e_player}")
+    org = c2.text_input("所属プロ団体", value=cur_player["所属団体"] or "",
+                        key=f"pp_org_{e_player}")
 
     if st.button("保存", key="pp_save"):
         conn.execute(

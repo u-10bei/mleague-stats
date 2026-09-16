@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from db import get_connection, get_team_colors, show_sidebar_navigation
+from db import get_connection, get_team_colors, get_current_team_names, show_sidebar_navigation
 
 st.set_page_config(
     page_title="連続記録 | Mリーグダッシュボード",
@@ -97,6 +97,12 @@ if not results:
 df = pd.DataFrame(results, columns=[
     'player_id', 'player_name', 'season', 'game_date', 'game_number', 'rank', 'team_id', 'team_name'
 ])
+# 全期間ではシーズンごとのチーム名で束ねると同一チームが分裂するため、
+# 表示名を最新シーズンの名前に寄せる（例: BEAST Japanext と BEAST X）。
+if selected_period == "全期間":
+    _current_names = get_current_team_names()
+    df["team_name"] = df["team_id"].map(_current_names).fillna(
+        df["team_id"].map(lambda i: f"Team {i}"))
 
 st.markdown("---")
 st.info(

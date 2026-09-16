@@ -24,10 +24,12 @@ Mリーグの対戦結果を可視化するStreamlitダッシュボードです�
 
 ### 管理機能
 
-**補完データ管理**
+**補完データ管理**（既定で無効 / ローカル専用）
 
 対局結果・選手・チームのマスタは konoui DB が正データなので入力不要です。
 konoui DB に無い情報だけを 1 ページで編集します。
+公開環境では書き込みがコンテナ再起動で消えるため、既定で無効にしています
+（有効化は「デプロイ」の節を参照）。
 
 - **対局時間**: OCR 結果の CSV 取り込みと手入力、2 段階の異常検出
 - **チーム名履歴**: 年度別のチーム名（konoui DB は現行名のみ保持）
@@ -37,8 +39,12 @@ konoui DB に無い情報だけを 1 ページで編集します。
 ## セットアップ
 
 対局データは [konoui/m-league-game-db](https://github.com/konoui/m-league-game-db) の
-配布 DB を**正データ**として利用します。配布 DB は 556MB あるため Git 管理せず、
-セットアップ時に取得します。
+配布DB を**正データ**として利用します。アプリが実際に参照する 11 テーブルだけを
+抜き出した**軽量DB** (`data/mleague_konoui_slim.sqlite3` / 約5MB) をリポジトリに
+同梱しているため、**クローンしただけで動きます**。
+
+局・イベント単位の分析をする場合だけ、562MB の配布DB を取得してください
+（置いておくと自動的にそちらが使われます）。
 
 ### ローカル環境
 
@@ -50,29 +56,27 @@ cd mleague-stats
 # 依存関係をインストール
 pip install -r requirements.txt
 
-# konoui 配布DB を取得（毎シーズン差し替え）
-curl -L -O https://github.com/konoui/m-league-game-db/releases/latest/download/database.zip
-unzip database.zip -d data/
-
 # 動作確認
 python db_konoui.py          # 互換ビューの行数を表示
 python validate_games.py     # 全試合の整合性検証
 
-# アプリを起動
+# 起動（補完データ管理も使う場合は MLEAGUE_ADMIN=1 を付ける）
 streamlit run app.py
+```
+
+### 配布DB を使う場合（任意）
+
+```bash
+curl -L -O https://github.com/konoui/m-league-game-db/releases/latest/download/database.zip
+unzip database.zip -d data/
+rm database.zip
 ```
 
 ### GitHub Codespaces
 
 1. GitHubリポジトリで「Code」→「Codespaces」→「Create codespace on main」
-2. 自動的に環境がセットアップされます
-3. ターミナルで以下を実行:
-   ```bash
-   pip install -r requirements.txt
-   curl -L -O https://github.com/konoui/m-league-game-db/releases/latest/download/database.zip
-   unzip database.zip -d data/
-   streamlit run app.py
-   ```
+2. 自動的に環境がセットアップされます（`pip install` まで実行されます）
+3. ターミナルで `streamlit run app.py`
 
 ## プロジェクト構成
 
@@ -80,28 +84,37 @@ streamlit run app.py
 mleague-stats/
 ├── .devcontainer/
 │   └── devcontainer.json          # Codespaces設定
+├── .github/workflows/
+│   ├── ci.yml                     # push/PR ごとの検証
+│   └── update-konoui-db.yml       # konoui 新リリースの取り込みPR（週次）
+├── .streamlit/
+│   ├── config.toml                # Streamlit 設定
+│   └── secrets.toml.example       # 補完データ管理を有効にする雛形
 ├── data/
-│   ├── database.sqlite3           # konoui 配布DB（正データ／556MB／.gitignore）
+│   ├── mleague_konoui_slim.sqlite3 # 軽量DB（5MB／Git管理／Cloud はこれを使う）
 │   ├── mleague_local.db           # 補完テーブルのみ（数十KB／Git管理）
+│   ├── konoui_release.txt         # 取り込み済みの konoui リリースタグ
+│   ├── database.sqlite3           # konoui 配布DB（562MB／任意／.gitignore）
 │   └── mleague.db                 # 移行前の旧DB（参照用に保持）
 ├── pages/
 │   ├── 1_season_ranking.py        # 年度別チームランキング
 │   ├── 2_cumulative_ranking.py    # 累積チームランキング
 │   ├── 7_player_season_ranking.py # 年度別選手ランキング
 │   ├── 8_player_cumulative_ranking.py # 累積選手ランキング
-│   ├── 10_team_game_analysis.py   # チーム半荘別分析（席順別・試合番号別・直対・曜日別）
-│   ├── 13_player_game_analysis.py # 選手半荘別分析（席順別・試合番号別・直対・曜日別）
+│   ├── 10_team_game_analysis.py   # チーム半荘別分析
+│   ├── 13_player_game_analysis.py # 選手半荘別分析
 │   ├── 14_statistical_analysis.py # 統計分析（席別パフォーマンス）
 │   ├── 15_game_records.py         # 対局記録（試合時間）
 │   ├── 16_streak_records.py       # 連続記録（連勝・連敗・連対）
-│   ├── 17_player_rating.py        # レーティング（Elo風レーティング分析）
-│   └── 18_local_data_admin.py     # 補完データ管理
+│   ├── 17_player_rating.py        # レーティング（Elo風）
+│   └── 18_local_data_admin.py     # 補完データ管理（既定で無効）
 ├── app.py                         # メインアプリ（トップページ）
-├── db.py                          # 各ページ向けのデータ取得ユーティリティ
-├── db_konoui.py                   # ATTACH と互換ビュー構築を行う接続ヘルパー
+├── db.py                          # データ取得ユーティリティ／管理機能の有効判定
+├── db_konoui.py                   # ATTACH と互換ビュー構築（DB の自動選択）
+├── build_slim_db.py               # 配布DB → 軽量DB の生成
 ├── setup_views.sql                # 補完テーブル定義 ＋ 互換ビュー定義
 ├── validate_games.py              # 整合性検証 ＋ 対局時間の取り込み
-├── migrate_local.py               # 旧DBの補完データを移行（初回のみ）
+├── migrate_local.py               # 旧DBの補完データ移行（初回のみ）
 ├── recalculate_ratings.py         # レーティングの遡及計算
 ├── init_db.py                     # 旧DB用の初期化スクリプト（移行後は未使用）
 ├── requirements.txt
@@ -461,11 +474,75 @@ GROUP BY table_type;
 
 ### Streamlit Community Cloud
 
-1. GitHubにリポジトリをプッシュ
-2. [share.streamlit.io](https://share.streamlit.io) にアクセス
-3. 「New app」からリポジトリを選択
-4. メインファイルに `app.py` を指定
-5. 「Deploy」をクリック
+konoui 配布DB (562MB) はリポジトリに含められないため、アプリが実際に参照する
+11 テーブルだけを抜き出した**軽量DB** (`data/mleague_konoui_slim.sqlite3` / 約5MB) を
+同梱しています。クローンしただけで動くので、追加の準備なしにデプロイできます。
+
+1. [share.streamlit.io](https://share.streamlit.io) にアクセス
+2. 「New app」からこのリポジトリを選択
+3. メインファイルに `app.py` を指定
+4. 「Deploy」をクリック
+
+Secrets の設定は不要です。**補完データ管理ページは既定で無効**なので、
+そのままデプロイしても管理機能は露出しません。
+
+以降は `main` への push で自動的に再デプロイされます。
+
+### 補完データ管理の有効化
+
+補完データ管理は既定で無効です。公開環境ではコンテナ再起動で書き込みが消えるため、
+そもそも出す意味がありません。ローカルで使うときだけ有効にします。
+
+```bash
+# 環境変数で有効化
+MLEAGUE_ADMIN=1 streamlit run app.py
+```
+
+または `.streamlit/secrets.toml`（`.gitignore` 済み）に書きます。
+
+```bash
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+```
+
+サイドバーからリンクを外すだけでなく、URL を直接開いた場合もページ側で止めています。
+
+### 使用する DB の自動選択
+
+`db_konoui.py` は次の順で使う DB を決めます。
+
+| 優先 | DB | 用途 |
+|---|---|---|
+| 1 | 環境変数 `KONOUI_DB_PATH` | 明示指定（CI など） |
+| 2 | `data/database.sqlite3` (562MB) | ローカル開発。局・イベント単位の分析もできる |
+| 3 | `data/mleague_konoui_slim.sqlite3` (5MB) | Community Cloud。Git 管理されている |
+
+軽量DB でも互換ビューの内容は配布DB と完全に一致します（全1,918試合、8ビュー）。
+`src.player_state` などの局・イベント単位テーブルを直接叩く分析をする場合だけ、
+配布DB が必要です。
+
+### 軽量DB の更新
+
+konoui の新しいリリースが出たら作り直します。
+
+```bash
+curl -L -O https://github.com/konoui/m-league-game-db/releases/latest/download/database.zip
+unzip database.zip -d data/
+python build_slim_db.py     # data/mleague_konoui_slim.sqlite3 を再生成
+python validate_games.py    # 検証
+```
+
+GitHub Actions が毎週月曜にこれを自動実行し、差分があれば PR を作成します
+（`.github/workflows/update-konoui-db.yml`）。手動実行も可能です。
+取り込み済みのリリースは `data/konoui_release.txt` に記録されます。
+
+### CI
+
+`.github/workflows/ci.yml` が push / PR ごとに次を検証します。
+
+- 軽量DB で互換ビューが構築できること
+- 全1,918試合の整合性
+- 全ページがエラーなく読み込めること
+- 補完データ管理が既定で無効であること
 
 ## 今後の拡張予定
 
