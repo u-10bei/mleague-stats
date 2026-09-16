@@ -14,12 +14,76 @@ player_tenpai_state 189K行) からしか出せない指標を、選手×シー�
 アプリ側は どちらを使っているかを気にしなくてよい。
 """
 
-# konoui が提供する 43 列の統計ビュー。player_name が主キー相当なので
-# player_id を足す。とくせい 20 種のうち和了・ドラ・失点・立回りの材料。
-PLAYER_STATS = """
-SELECT p.id AS player_id, s.*
-FROM src.player_season_stage_stats s
-JOIN src.player p ON p.name = s.player_name
+# konoui が提供する統計の「素カウント」ビュー (39列)。
+# 上に乗っている player_season_stage_stats (43列) は、すべてこの素カウントの
+# 単純な比で作られている。率ではなく素カウントを持っておけば、シーズン合算でも
+# 通算でも「分子の和 / 分母の和」で正確に出せる。率を出場数で加重平均すると
+# 局数の違いを吸収できず、わずかにずれる。
+#
+# 合算は best_score だけ MAX、他は SUM。
+PLAYER_BASE = """
+SELECT p.id AS player_id, b.*
+FROM src.player_season_stage_stats_base b
+JOIN src.player p ON p.name = b.player_name
+"""
+
+# 和了の巡目と役満。称号の「平均和了巡目」と、名前の横に付ける ★ の材料。
+#
+#   巡目は、その局で自分が何回ツモったかを和了時点まで数えたもの。
+#   agari_event に player_state が付かないので draw_event から復元する。
+AGARI = """
+WITH ag AS (
+    SELECT a.event_id          AS event_id,
+           e.kyoku_id          AS kyoku_id,
+           e.event_order       AS event_order,
+           a.actor_player_id   AS player_id,
+           a.is_yakuman        AS is_yakuman
+    FROM src.agari_event a
+    JOIN src.event e ON e.id = a.event_id
+),
+turns AS (
+    SELECT ag.event_id, ag.kyoku_id, ag.player_id, ag.is_yakuman,
+           COUNT(dw.event_id) AS turn
+    FROM ag
+    LEFT JOIN src.event de
+           ON de.kyoku_id = ag.kyoku_id
+          AND de.event_order < ag.event_order
+          AND de.type = 'draw'
+    LEFT JOIN src.draw_event dw
+           ON dw.event_id = de.id AND dw.actor_player_id = ag.player_id
+    GROUP BY ag.event_id
+)
+SELECT ls.start_year AS start_season_year,
+       ss.stage      AS stage,
+       t.player_id   AS player_id,
+       COUNT(*)           AS agari_count,
+       SUM(t.turn)        AS turn_total,
+       SUM(t.is_yakuman)  AS yakuman_count
+FROM turns t
+JOIN src.kyoku k ON k.id = t.kyoku_id
+JOIN src.game  g ON g.id = k.game_id
+JOIN src.season_stage  ss ON ss.id = g.season_stage_id
+JOIN src.league_season ls ON ls.id = ss.league_season_id
+GROUP BY 1, 2, 3
+"""
+
+# 役満の 1 件ずつ。★ のホバーに年と役名を出すため。31 行しかない。
+YAKUMAN = """
+SELECT ls.start_year      AS start_season_year,
+       a.actor_player_id  AS player_id,
+       g.date             AS game_date,
+       a.points           AS points,
+       GROUP_CONCAT(y.name, '・') AS yaku
+FROM src.agari_event a
+JOIN src.event e ON e.id = a.event_id
+JOIN src.kyoku k ON k.id = e.kyoku_id
+JOIN src.game  g ON g.id = k.game_id
+JOIN src.season_stage  ss ON ss.id = g.season_stage_id
+JOIN src.league_season ls ON ls.id = ss.league_season_id
+LEFT JOIN src.agari_yaku_event ay ON ay.agari_event_id = a.event_id
+LEFT JOIN src.yaku_name y ON y.id = ay.name_id
+WHERE a.is_yakuman = 1
+GROUP BY a.event_id
 """
 
 # 打牌の内訳。「てづくり」軸の材料。
@@ -110,7 +174,9 @@ GROUP BY 1, 2, 3
 
 # (テーブル名, SELECT, 索引を張る列)
 AGGREGATES = [
-    ("player_season_stage_stats",   PLAYER_STATS, "player_id, start_season_year"),
-    ("player_season_stage_discard", DISCARD,      "player_id, start_season_year"),
-    ("player_season_stage_tenpai",  TENPAI,       "player_id, start_season_year"),
+    ("player_season_stage_base",    PLAYER_BASE, "player_id, start_season_year"),
+    ("player_season_stage_discard", DISCARD,     "player_id, start_season_year"),
+    ("player_season_stage_tenpai",  TENPAI,      "player_id, start_season_year"),
+    ("player_season_stage_agari",   AGARI,       "player_id, start_season_year"),
+    ("yakuman_event",               YAKUMAN,     "player_id, start_season_year"),
 ]

@@ -1,0 +1,234 @@
+{
+ "_note": "キャラクターシートの語彙。axes はジョブ名、traits はとくせい。class/adjective/mark は 1番目/2番目/3番目に強い軸から取る。",
+ "axes": {
+  "しかけ高": {
+   "class": "盗賊",
+   "adjective": "機敏な",
+   "mark": "機",
+   "desc": "副露率が高い（よく鳴く）"
+  },
+  "しかけ低": {
+   "class": "求道者",
+   "adjective": "一徹な",
+   "mark": "独",
+   "desc": "副露率が低い（門前で組む）"
+  },
+  "だてん高": {
+   "class": "黒魔道士",
+   "adjective": "剛腕の",
+   "mark": "剛",
+   "desc": "平均和了点が高い"
+  },
+  "だてん低": {
+   "class": "武闘家",
+   "adjective": "軽快な",
+   "mark": "軽",
+   "desc": "平均和了点が低い（手数で取る）"
+  },
+  "まもり高": {
+   "class": "騎士",
+   "adjective": "堅固な",
+   "mark": "堅",
+   "desc": "放銃率が低い"
+  },
+  "まもり低": {
+   "class": "狂戦士",
+   "adjective": "大胆な",
+   "mark": "荒",
+   "desc": "放銃率が高い（恐れず押す）"
+  },
+  "ねばり高": {
+   "class": "闘士",
+   "adjective": "粘り強い",
+   "mark": "執",
+   "desc": "流局聴牌率が高い（降りない）"
+  },
+  "ねばり低": {
+   "class": "狩人",
+   "adjective": "潔い",
+   "mark": "疾",
+   "desc": "流局聴牌率が低い（見切りが早い）"
+  },
+  "てづくり高": {
+   "class": "錬金術師",
+   "adjective": "巧緻な",
+   "mark": "巧",
+   "desc": "向聴を戻さない手出しが多い（手を作る）"
+  },
+  "てづくり低": {
+   "class": "風水師",
+   "adjective": "臨機応変な",
+   "mark": "天",
+   "desc": "向聴を戻さない手出しが少ない（来た牌で打つ）"
+  },
+  "みきわめ高": {
+   "class": "狙撃手",
+   "adjective": "見極める",
+   "mark": "明",
+   "desc": "平均待ち枚数が多い（好形を選ぶ）"
+  },
+  "みきわめ低": {
+   "class": "勝負師",
+   "adjective": "剛胆な",
+   "mark": "賭",
+   "desc": "平均待ち枚数が少ない（愚形でも踏み込む）"
+  },
+  "りーち高": {
+   "class": "宣言者",
+   "adjective": "決断の",
+   "mark": "烈",
+   "desc": "立直率が高い（リスクと引き換えに打点を取る）"
+  },
+  "りーち低": {
+   "class": "隠密",
+   "adjective": "沈黙の",
+   "mark": "陰",
+   "desc": "立直率が低い（ダマに構える）"
+  }
+ },
+ "balanced": "遊撃手",
+ "job_threshold": 1.0,
+ "traits": [
+  {
+   "name": "自摸",
+   "col": "tsumo_win_rate_percent",
+   "sign": 1,
+   "desc": "和了のうちツモの割合が高い",
+   "group": "和了"
+  },
+  {
+   "name": "栄和",
+   "col": "tsumo_win_rate_percent",
+   "sign": -1,
+   "desc": "和了のうちツモの割合が低い",
+   "group": "和了"
+  },
+  {
+   "name": "闇聴",
+   "col": "dama_agari_in_win_rate_percent",
+   "sign": 1,
+   "desc": "和了のうちダマの割合が高い",
+   "group": "和了"
+  },
+  {
+   "name": "ドラ持ち",
+   "col": "avg_dora_num",
+   "sign": 1,
+   "desc": "和了1回あたりのドラ数が多い",
+   "group": "ドラ"
+  },
+  {
+   "name": "赤持ち",
+   "col": "avg_aka_dora_num",
+   "sign": 1,
+   "desc": "和了1回あたりの赤ドラ数が多い",
+   "group": "ドラ"
+  },
+  {
+   "name": "裏乗り",
+   "col": "ura_dora_nori_rate_percent",
+   "sign": 1,
+   "desc": "立直和了で裏ドラが乗った割合が高い",
+   "group": "ドラ"
+  },
+  {
+   "name": "不可抗力",
+   "col": "hitsumo_rate_percent",
+   "sign": 1,
+   "desc": "ツモられた割合が高い",
+   "group": "失点"
+  },
+  {
+   "name": "とばっちり",
+   "col": "oya_kaburi_rate_percent",
+   "sign": 1,
+   "desc": "親の和了を受けた割合が高い",
+   "group": "失点"
+  },
+  {
+   "name": "天災",
+   "col": "itai_oya_kaburi_rate_percent",
+   "sign": 1,
+   "desc": "親被りのうち高打点の割合が高い",
+   "group": "失点"
+  },
+  {
+   "name": "放銃_高",
+   "col": "avg_dealin_points",
+   "sign": 1,
+   "desc": "放銃1回あたりの失点が大きい",
+   "group": "立回り"
+  },
+  {
+   "name": "放銃_低",
+   "col": "avg_dealin_points",
+   "sign": -1,
+   "desc": "放銃1回あたりの失点が小さい",
+   "group": "立回り"
+  },
+  {
+   "name": "連荘",
+   "col": "renchan_rate_percent",
+   "sign": 1,
+   "desc": "親番を継続した割合が高い",
+   "group": "立回り"
+  },
+  {
+   "name": "参加率_低",
+   "col": "yokomove_rate_percent",
+   "sign": 1,
+   "desc": "自分が絡まず終わった局の割合が高い",
+   "group": "立回り"
+  },
+  {
+   "name": "両面党",
+   "col": "wait_ryanmen_pct",
+   "sign": 1,
+   "desc": "聴牌時の待ちが両面",
+   "group": "待ち"
+  },
+  {
+   "name": "カンチャン党",
+   "col": "wait_kanchan_pct",
+   "sign": 1,
+   "desc": "同 カンチャン",
+   "group": "待ち"
+  },
+  {
+   "name": "シャンポン党",
+   "col": "wait_shanpon_pct",
+   "sign": 1,
+   "desc": "同 シャンポン",
+   "group": "待ち"
+  },
+  {
+   "name": "単騎党",
+   "col": "wait_tanki_pct",
+   "sign": 1,
+   "desc": "同 単騎",
+   "group": "待ち"
+  },
+  {
+   "name": "ペンチャン党",
+   "col": "wait_penchan_pct",
+   "sign": 1,
+   "desc": "同 ペンチャン",
+   "group": "待ち"
+  },
+  {
+   "name": "ノベタン党",
+   "col": "wait_nobetan_pct",
+   "sign": 1,
+   "desc": "同 ノベタン",
+   "group": "待ち"
+  },
+  {
+   "name": "多面張党",
+   "col": "wait_fukugo_pct",
+   "sign": 1,
+   "desc": "同 複合形（三面張以上）",
+   "group": "待ち"
+  }
+ ],
+ "trait_threshold": 1.5
+}

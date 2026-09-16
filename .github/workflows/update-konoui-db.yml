@@ -102,6 +102,9 @@ jobs:
         run: |
           python db_konoui.py
           python validate_games.py
+          # 配布DB が手元にあるので、derive() と konoui 自身の率の突合まで走る
+          KONOUI_DB_PATH= python character.py --check
+          python character.py --check
           for f in app.py pages/*.py; do
             if out=$(timeout 300 python3 "$f" 2>&1); then
               echo "OK: $f"
