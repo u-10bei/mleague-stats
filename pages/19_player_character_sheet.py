@@ -27,6 +27,25 @@ GOLD = "#8a6a1f"
 PLACE_MARK = {1: "🥇", 2: "🥈", 3: "🥉"}
 
 
+def readable_on(hex_color):
+    """背景色の上で読みやすいほうの文字色を返す。
+
+    WCAG の相対輝度からコントラスト比を出し、黒と白の大きいほうを採る。
+    10 チームすべてで 4.5 以上になる（最小はアースジェッツの 5.02、
+    BEAST X は黒文字で 6.47）。
+    """
+    h = (hex_color or "").lstrip("#")
+    if len(h) != 6:
+        return "#ffffff"
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
+    def lin(c):
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    lum = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    return "#000000" if (lum + 0.05) / 0.05 >= 1.05 / (lum + 0.05) else "#ffffff"
+
+
 def rank_color(rank):
     if rank in ("S", "A", "B"):
         return RANK_HIGH
@@ -47,10 +66,12 @@ def load():
         # player_season_stage_base の team_name は konoui の現行名なので、
         # 年度別の名前を持つ team_names ビューから引き直す。
         teams = pd.read_sql_query(
-            "SELECT pt.season, pt.player_id, tn.team_name"
+            "SELECT pt.season, pt.player_id, pt.team_id,"
+            "       tn.team_name, t.color"
             " FROM player_teams pt"
             " JOIN team_names tn"
-            "   ON tn.team_id = pt.team_id AND tn.season = pt.season", con)
+            "   ON tn.team_id = pt.team_id AND tn.season = pt.season"
+            " JOIN teams t ON t.team_id = pt.team_id", con)
         ratings = pd.read_sql_query(
             "SELECT player_id, rating FROM ratings.player_ratings", con)
     finally:
@@ -82,6 +103,8 @@ player_name = name_of[selected]
 
 team_rows = teams[teams.player_id == selected].sort_values("season")
 team_label = team_rows.iloc[-1].team_name if len(team_rows) else ""
+team_color = team_rows.iloc[-1].color if len(team_rows) else "#7c857f"
+team_fg = readable_on(team_color)
 team_of_season = dict(zip(team_rows.season, team_rows.team_name))
 rating = ratings[ratings.player_id == selected]
 rating_value = f"{rating.iloc[0].rating:.0f}" if len(rating) else "—"
@@ -89,51 +112,57 @@ rating_value = f"{rating.iloc[0].rating:.0f}" if len(rating) else "—"
 st.markdown("---")
 
 # ========== ジョブ ==========
-head_left, head_right = st.columns([3, 2])
+# 最新シーズンのチームカラーを背景に敷き、文字色はコントラスト比で決める。
+stars = "★" * len(sheet["stars"])
+star_title = " / ".join(f"{x['season']} {x['yaku']}" for x in sheet["stars"])
+stats = [("Lv.", sheet["seasons_n"]), ("出場", f"{sheet['games']}戦"),
+         ("レート", rating_value), ("和了率", f"{sheet['win_rate']:.1f}%")]
 
-with head_left:
-    stars = "★" * len(sheet["stars"])
-    st.markdown(
-        f"<div style='font-size:12px;letter-spacing:.14em;color:{RANK_HIGH};"
-        f"font-weight:700'>{team_label}</div>"
-        f"<div style='font-size:26px;font-weight:600;letter-spacing:.04em'>"
-        f"{player_name}"
-        f"<span style='color:{GOLD};font-size:15px;margin-left:.6em'>{stars}</span>"
-        f"</div>"
-        f"<div style='font-size:11px;letter-spacing:.2em;color:{RANK_MID};"
-        f"margin-top:16px'>ジョブ ｜ 通算</div>"
-        f"<div style='font-size:42px;font-weight:600;line-height:1.2;"
-        f"color:{RANK_HIGH}'>{sheet['job']}</div>",
-        unsafe_allow_html=True,
+st.markdown(
+    f"<div style='background:{team_color};color:{team_fg};border-radius:6px;"
+    f"padding:22px 26px;display:flex;flex-wrap:wrap;gap:24px;"
+    f"align-items:flex-end;justify-content:space-between'>"
+    f"<div style='min-width:260px'>"
+    f"<div style='font-size:12px;letter-spacing:.14em;font-weight:700;"
+    f"opacity:.85'>{team_label}</div>"
+    f"<div style='font-size:26px;font-weight:600;letter-spacing:.04em'>"
+    f"{player_name}"
+    f"<span title='役満 {len(sheet['stars'])} 回：{star_title}'"
+    f" style='font-size:15px;margin-left:.6em;opacity:.9'>{stars}</span></div>"
+    f"<div style='font-size:11px;letter-spacing:.2em;opacity:.75;"
+    f"margin-top:14px'>ジョブ ｜ 通算</div>"
+    f"<div style='font-size:42px;font-weight:700;line-height:1.2'>"
+    f"{sheet['job']}</div></div>"
+    f"<div style='display:flex;gap:28px'>"
+    + "".join(
+        f"<div><div style='font-size:11px;letter-spacing:.14em;opacity:.75'>"
+        f"{label}</div><div style='font-size:24px;font-weight:600;"
+        f"font-variant-numeric:tabular-nums'>{value}</div></div>"
+        for label, value in stats)
+    + "</div></div>",
+    unsafe_allow_html=True,
+)
+
+if sheet["job_parts"]:
+    st.dataframe(
+        pd.DataFrame([
+            {"役割": p["role"], "語": p["word"],
+             "由来": f"{p['axis']}{p['dir']}（{p['z']:+.2f}）",
+             "意味": p["desc"]}
+            for p in sheet["job_parts"]
+        ]),
+        hide_index=True, width="stretch",
+        column_config={
+            "役割": st.column_config.TextColumn(width="small"),
+            "語": st.column_config.TextColumn(width="small"),
+            "由来": st.column_config.TextColumn(width="small"),
+            "意味": st.column_config.TextColumn(width="large"),
+        },
     )
-    if sheet["job_parts"]:
-        st.dataframe(
-            pd.DataFrame([
-                {"役割": p["role"], "語": p["word"],
-                 "由来": f"{p['axis']}{p['dir']}（{p['z']:+.2f}）",
-                 "意味": p["desc"]}
-                for p in sheet["job_parts"]
-            ]),
-            hide_index=True, width="stretch",
-            column_config={
-                "役割": st.column_config.TextColumn(width="small"),
-                "語": st.column_config.TextColumn(width="small"),
-                "由来": st.column_config.TextColumn(width="small"),
-                "意味": st.column_config.TextColumn(width="large"),
-            },
-        )
-    else:
-        st.info(
-            "1.0σ を超える軸がありません。どの軸にも寄っていないので"
-            f"万能クラス（{data['vocab']['balanced']}）です。")
-
-with head_right:
-    c1, c2 = st.columns(2)
-    c1.metric("Lv.", sheet["seasons_n"])
-    c2.metric("出場", f"{sheet['games']}戦")
-    c3, c4 = st.columns(2)
-    c3.metric("レート", rating_value)
-    c4.metric("和了率", f"{sheet['win_rate']:.1f}%")
+else:
+    st.info(
+        "1.0σ を超える軸がありません。どの軸にも寄っていないので"
+        f"万能クラス（{data['vocab']['balanced']}）です。")
 
 st.markdown("---")
 
