@@ -47,7 +47,7 @@ with tab1:
         ]].copy()
         
         display_df.columns = [
-            '順位', '選手名', 'レート', '対局数', '最終更新'
+            '順位', '選手名', 'レート', '対局数', '最終対局日'
         ]
         
         # フォーマット
@@ -159,7 +159,7 @@ with tab2:
         with col3:
             st.metric("対局数", int(player_info['games']))
         with col4:
-            st.metric("最終更新", player_info['last_updated'])
+            st.metric("最終対局日", player_info["last_updated"])
         
         st.markdown("---")
         

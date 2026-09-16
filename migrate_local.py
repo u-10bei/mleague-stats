@@ -12,7 +12,7 @@ konoui DB を正データにすると player_id / team_id は konoui 側の ID �
     チーム略称/カラー   teams.short_name / color            → team_meta
     チーム名履歴        team_names                          → team_name_history
     選手プロフィール    players.birth_date / pro_org        → player_profile
-    レーティング        player_ratings / rating_history     → 同名テーブル
+    レーティング        player_ratings / rating_history     → ratings.sqlite3
 
 使い方:
     python migrate_local.py             # 移行実行
@@ -184,7 +184,7 @@ def migrate_ratings(old, con, player_map):
         if new_id is None:
             continue
         con.execute(
-            "INSERT INTO main.player_ratings (player_id, rating, games, last_updated)"
+            "INSERT INTO ratings.player_ratings (player_id, rating, games, last_updated)"
             " VALUES (?, ?, ?, ?)"
             " ON CONFLICT(player_id) DO UPDATE SET"
             "   rating = excluded.rating, games = excluded.games,"
@@ -193,7 +193,7 @@ def migrate_ratings(old, con, player_map):
         )
         ratings += 1
 
-    con.execute("DELETE FROM main.rating_history")
+    con.execute("DELETE FROM ratings.rating_history")
     history = 0
     for (old_id, date, old_r, new_r, delta, opp, season, gnum) in old.execute(
             "SELECT player_id, game_date, old_rating, new_rating, delta,"
@@ -218,7 +218,7 @@ def migrate_ratings(old, con, player_map):
                     parts.append(str(mapped))
             new_opp = ",".join(parts) if parts else None
         con.execute(
-            "INSERT INTO main.rating_history"
+            "INSERT INTO ratings.rating_history"
             " (player_id, game_date, old_rating, new_rating, delta,"
             "  opponent_ids, season, game_number)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

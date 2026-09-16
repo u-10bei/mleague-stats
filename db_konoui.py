@@ -3,7 +3,8 @@
 konoui/m-league-game-db を正データとして扱うための接続ヘルパー。
 
     data/database.sqlite3   konoui 配布DB (読み取り専用 / 毎シーズン差し替え / .gitignore)
-    data/mleague_local.db   補完テーブルのみ (Git 管理してよい)
+    data/mleague_local.db   補完テーブルのみ (人が編集する / Git 管理)
+    data/ratings.sqlite3    レーティングの計算結果 (機械が作り直す / Git 管理)
 
 konoui DB を `src` として ATTACH し、既存アプリが参照しているテーブル名を
 互換ビューで再現する。SQLite はビューから別の ATTACH 先を参照できないため、
@@ -21,8 +22,12 @@ import sqlite3
 FULL_DB_PATH = "data/database.sqlite3"
 # 配布DB からアプリが使うテーブルだけを抜き出した軽量DB (5MB / Git管理)
 SLIM_DB_PATH = "data/mleague_konoui_slim.sqlite3"
-# 補完テーブルを置く自前DB
+# 補完テーブルを置く自前DB (人が補完データ管理ページから編集する)
 LOCAL_DB_PATH = os.environ.get("MLEAGUE_LOCAL_DB_PATH", "data/mleague_local.db")
+# レーティングの計算結果を置くDB。recalculate_ratings.py が丸ごと作り直す。
+# 手編集するファイルと分けておくことで、同期の自動化が LOCAL_DB_PATH に
+# 触らずに済む。
+RATINGS_DB_PATH = os.environ.get("MLEAGUE_RATINGS_DB_PATH", "data/ratings.sqlite3")
 # 補完テーブル定義 + 互換ビュー定義
 SETUP_SQL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "setup_views.sql")
@@ -92,6 +97,7 @@ def get_connection(readonly_local=False):
         raise KonouiDatabaseNotFound(_konoui_missing_message())
 
     os.makedirs(os.path.dirname(LOCAL_DB_PATH) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(RATINGS_DB_PATH) or ".", exist_ok=True)
 
     # uri=True にしておくと ATTACH 側でも file: URI が解釈される
     local_uri = "file:{}{}".format(
@@ -102,6 +108,11 @@ def get_connection(readonly_local=False):
     # konoui DB は正データなので必ず読み取り専用で開く
     konoui_uri = "file:{}?mode=ro".format(konoui_path)
     con.execute("ATTACH DATABASE ? AS src", (konoui_uri,))
+
+    ratings_uri = "file:{}{}".format(
+        RATINGS_DB_PATH, "?mode=ro" if readonly_local else ""
+    )
+    con.execute("ATTACH DATABASE ? AS ratings", (ratings_uri,))
 
     _setup(con)
     return con
@@ -139,11 +150,16 @@ def check():
             print("  {:22} {:>8,}".format(name, n))
 
         print()
-        print("補完テーブル:")
+        print("補完テーブル (main):")
         for name in ("game_time", "team_meta", "team_name_history",
-                     "player_profile", "player_ratings", "rating_history",
-                     "rating_state"):
+                     "player_profile"):
             n = con.execute('SELECT COUNT(*) FROM main."{}"'.format(name)).fetchone()[0]
+            print("  {:22} {:>8,}".format(name, n))
+
+        print()
+        print("レーティング (ratings):")
+        for name in ("player_ratings", "rating_history", "rating_state"):
+            n = con.execute('SELECT COUNT(*) FROM ratings."{}"'.format(name)).fetchone()[0]
             print("  {:22} {:>8,}".format(name, n))
     finally:
         con.close()

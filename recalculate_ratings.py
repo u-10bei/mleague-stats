@@ -36,11 +36,11 @@ def recalculate_ratings():
     initialize_ratings_from_games()
     
     # 計算結果を確認
-    cursor.execute("SELECT SUM(games) FROM player_ratings")
+    cursor.execute("SELECT SUM(games) FROM ratings.player_ratings")
     games_sum_result = cursor.fetchone()
     games_sum = games_sum_result[0] if games_sum_result[0] is not None else 0
     
-    cursor.execute("SELECT COUNT(*) FROM player_ratings WHERE games > 0")
+    cursor.execute("SELECT COUNT(*) FROM ratings.player_ratings WHERE games > 0")
     players_with_rating = cursor.fetchone()[0]
     
     cursor.execute("""
@@ -57,7 +57,7 @@ def recalculate_ratings():
     print(f"\n✅ レーティング計算完了!")
     print(f"\n📊 計算結果:")
     print(f"  ├─ レーティング対象選手数: {players_with_rating}人")
-    print(f"  ├─ player_ratings.games 合計: {games_sum}")
+    print(f"  ├─ ratings.player_ratings.games 合計: {games_sum}")
     print(f"  ├─ rating_calculated = 1 の対局数: {calculated_games}対局")
     print(f"  └─ 計算対象外の対局: {unique_games - calculated_games}対局")
     
