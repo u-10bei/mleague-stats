@@ -1,3 +1,4 @@
+import itertools
 import os
 import sqlite3
 
@@ -555,55 +556,87 @@ def get_player_all_stats():
 
 # ========== レーティング ==========
 #
-# 半荘を「3つの1対1の同時対戦」とみなすペアワイズ Elo。
+# 着順スコア方式の Elo。
 #
-#   ΔR_i = K * Σ_{j≠i} (S_ij - E_ij)
-#     S_ij : i が j より上位なら 1、同着なら 0.5、下位なら 0
-#     E_ij : 1 / (1 + 10^((R_j - R_i) / 400))
+#   ΔR_i = K * (実際の着順スコア_i - E[着順スコア_i])
 #
-# S_ij + S_ji = 1、E_ij + E_ji = 1 なので Σ_i ΔR_i = 0（ゼロサム）。
-# 期待値がレートだけで決まり、引数の並び順にも依存しない。
-# 全員同レートなら ΔR は +1.5K / +0.5K / -0.5K / -1.5K。
-RATING_K = 16
+# 着順スコアは 1位 +4.5 / 2位 +0.5 / 3位 -1.5 / 4位 -3.5（合計 0）。
+# トップとラスを重く、2位と3位の差を軽く見る配分。
+#
+# 期待値はレートだけから出す。Elo の多人数拡張である Plackett-Luce で
+# 「選手 i が k 位になる確率」を求め、着順スコアの期待値を取る。
+#
+#   強さ w_i = 10^(R_i / 400)
+#   1位から順に、残っている選手の w に比例して選ばれる
+#   P(i が k 位) は 4 人なら 24 通りの順列を数え上げれば厳密に出る
+#
+# 各着順の確率の合計が 1 なので Σ_i E[スコア_i] = Σ_k スコア_k = 0。
+# 実際の着順スコアの合計も 0 なので ΔR はゼロサムになる。
+# 引数の並び順には依存しない。
+# 全員同レートなら期待値が 0 になり ΔR = K × 着順スコア。
+RATING_K = 8
 INITIAL_RATING = 1500.0
 
+# 着順スコア。同着は該当する着順のスコアを平均する（1224 方式）。
+RANK_SCORES = {1: 4.5, 2: 0.5, 3: -1.5, 4: -3.5}
 
-def _win_expect(rating, opponent_rating):
-    """レート差から決まる、相手を上回る確率。"""
-    return 1 / (1 + 10 ** ((opponent_rating - rating) / 400))
+# 4 人分の順列。期待値の数え上げに使うので一度だけ作る。
+_PERMUTATIONS = list(itertools.permutations(range(4)))
 
 
-def calculate_expected_wins(rating, opponent_ratings):
-    """レートから決まる「上回ると期待される人数」(0〜3)。"""
-    return sum(_win_expect(rating, r) for r in opponent_ratings)
+def _rank_probabilities(ratings):
+    """Plackett-Luce で P(選手 i が k 位) を返す（probs[i][k]、k は 0 起点）。"""
+    # レートをそのまま指数に載せると桁が大きくなるので平均を引いてから。
+    mean = sum(ratings) / len(ratings)
+    strengths = [10 ** ((r - mean) / 400) for r in ratings]
+    probs = [[0.0] * 4 for _ in range(4)]
+    for order in _PERMUTATIONS:
+        p = 1.0
+        remaining = sum(strengths)
+        for player in order:
+            p *= strengths[player] / remaining
+            remaining -= strengths[player]
+        for place, player in enumerate(order):
+            probs[player][place] += p
+    return probs
+
+
+def calculate_expected_scores(ratings):
+    """レートから決まる着順スコアの期待値（-3.5 〜 +4.5）。"""
+    probs = _rank_probabilities(ratings)
+    scores = [RANK_SCORES[k] for k in (1, 2, 3, 4)]
+    return [sum(p * s for p, s in zip(row, scores)) for row in probs]
+
+
+def _actual_scores(ranks):
+    """実際の着順スコア。同着は該当する着順のスコアを平均する。"""
+    by_rank = {}
+    for i, rank in enumerate(ranks):
+        by_rank.setdefault(rank, []).append(i)
+    scores = [0.0] * len(ranks)
+    for rank, indexes in by_rank.items():
+        tied = [RANK_SCORES[r] for r in range(rank, rank + len(indexes))
+                if r in RANK_SCORES]
+        value = sum(tied) / len(tied) if tied else 0.0
+        for i in indexes:
+            scores[i] = value
+    return scores
 
 
 def calculate_rating_deltas(ratings, ranks, K=RATING_K):
     """4人分のレートと着順から ΔR を計算する。
 
-    ratings, ranks は同じ並びの長さ4のリスト。同着は 0.5 勝として扱う。
+    ratings, ranks は同じ並びの長さ4のリスト。
     """
-    deltas = []
-    for i in range(len(ratings)):
-        delta = 0.0
-        for j in range(len(ratings)):
-            if i == j:
-                continue
-            if ranks[i] < ranks[j]:
-                actual = 1.0
-            elif ranks[i] > ranks[j]:
-                actual = 0.0
-            else:
-                actual = 0.5
-            delta += K * (actual - _win_expect(ratings[i], ratings[j]))
-        deltas.append(delta)
-    return deltas
+    expected = calculate_expected_scores(ratings)
+    actual = _actual_scores(ranks)
+    return [K * (actual[i] - expected[i]) for i in range(len(ratings))]
 
 
 def calculate_rating_delta(player_rating, opponent_ratings, actual_rank, K=RATING_K):
-    """1人分の ΔR。相手の着順が不明でも、上回った人数は 4 - 着順で決まる。"""
-    actual_wins = len(opponent_ratings) + 1 - actual_rank
-    return K * (actual_wins - calculate_expected_wins(player_rating, opponent_ratings))
+    """1人分の ΔR。対象選手を先頭にした4人分のレートから期待値を出す。"""
+    expected = calculate_expected_scores([player_rating] + list(opponent_ratings))[0]
+    return K * (RANK_SCORES[actual_rank] - expected)
 
 
 # 共通: 4人分一括レーティング計算・保存
