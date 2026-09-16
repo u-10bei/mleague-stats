@@ -21,6 +21,8 @@ import sqlite3
 import sys
 import time
 
+from aggregates import AGGREGATES
+
 # 互換ビュー (setup_views.sql) と validate_games.py が参照するテーブル。
 # ここを増やすときは setup_views.sql の src.* 参照と揃えること。
 TABLES = [
@@ -106,6 +108,16 @@ def build(full_path, slim_path):
             return 1
         con.execute(row[0])
 
+    # 事前集計。局・イベント単位のテーブルからしか出せない指標を
+    # 選手×シーズン×ステージにまとめて焼き込む (aggregates.py)。
+    print()
+    print(f"{'事前集計':<30} {'行数':>10}")
+    for name, select, index_cols in AGGREGATES:
+        con.execute('CREATE TABLE "{}" AS {}'.format(name, select))
+        con.execute('CREATE INDEX "idx_{}" ON "{}"({})'.format(name, name, index_cols))
+        n = con.execute('SELECT COUNT(*) FROM "{}"'.format(name)).fetchone()[0]
+        print(f"{name:<30} {n:>10,}")
+
     con.commit()
     con.execute("DETACH src")
     con.execute("VACUUM")
@@ -132,6 +144,10 @@ def check(slim_path):
     for table in TABLES:
         n = con.execute('SELECT COUNT(*) FROM "{}"'.format(table)).fetchone()[0]
         print(f"  {table:<24} {n:>10,}")
+    print()
+    for name, _, _ in AGGREGATES:
+        n = con.execute('SELECT COUNT(*) FROM "{}"'.format(name)).fetchone()[0]
+        print(f"  {name:<30} {n:>10,}")
     cov = con.execute("SELECT MIN(date), MAX(date), COUNT(*) FROM game").fetchone()
     print()
     print(f"  カバー範囲: {cov[0]} 〜 {cov[1]} / 全{cov[2]:,}試合")
