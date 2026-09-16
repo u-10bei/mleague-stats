@@ -247,6 +247,26 @@ def get_current_team_names():
     return dict(zip(df["team_id"], df["team_name"]))
 
 
+def get_roster_player_ids(season=None):
+    """指定シーズンにチーム登録がある選手の player_id 集合。
+
+    season を省略すると最新シーズンを使う。進行中の連続記録のように
+    「いま在籍している選手」に絞りたい場面で使う。
+    """
+    conn = get_connection()
+    if season is None:
+        df = pd.read_sql_query("""
+            SELECT player_id FROM player_teams
+            WHERE season = (SELECT MAX(season) FROM player_teams)
+        """, conn)
+    else:
+        df = pd.read_sql_query(
+            "SELECT player_id FROM player_teams WHERE season = ?",
+            conn, params=(season,))
+    conn.close()
+    return set(df["player_id"])
+
+
 def get_team_names_for_season(season):
     """指定シーズンの全チーム名を取得"""
     conn = get_connection()
