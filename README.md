@@ -76,7 +76,58 @@ rm database.zip
 
 1. GitHubリポジトリで「Code」→「Codespaces」→「Create codespace on main」
 2. 自動的に環境がセットアップされます（`pip install` まで実行されます）
-3. ターミナルで `streamlit run app.py`
+3. ターミナルで起動する
+
+```bash
+# バックグラウンドで起動し、待ち受けを確認する
+nohup streamlit run app.py > /tmp/streamlit.log 2>&1 &
+sleep 8
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8501/   # 200 なら成功
+```
+
+4. VS Code の「ポート」パネルで 8501 の行の**地球儀アイコン**をクリックして開く
+
+```bash
+tail -f /tmp/streamlit.log        # ログを追う
+pkill -f "streamlit run app.py"   # 止める
+```
+
+補完データ管理ページも使う場合は、一度止めてから環境変数を付けて起動し直します。
+
+```bash
+pkill -f "streamlit run app.py"
+MLEAGUE_ADMIN=1 nohup streamlit run app.py > /tmp/streamlit.log 2>&1 &
+```
+
+#### 転送先の URL が 404 になるとき
+
+Streamlit はルーティングに一致しないパスでもアプリの HTML を 200 で返すため、
+**404 は Streamlit ではなく GitHub のポート転送プロキシが返しています**。
+アプリが動いているかどうかを、Codespace のターミナルから切り分けてください。
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8501/
+```
+
+`000`（接続失敗）なら Streamlit が起動していません。`streamlit run` は
+フォアグラウンドで動き続けるコマンドなので、プロンプトが返っているなら
+Ctrl+C で止めたか起動に失敗しています。上のバックグラウンド起動を使うか、
+別のターミナルで確認してください。`/tmp/streamlit.log` に原因が出ます。
+
+`200` ならアプリは正常で、ブラウザ側の問題です。
+
+- **URL を手で入力しない。** ホスト名には Codespace 名が埋め込まれているので、
+  作り直したり削除したりすると、その名前のホストは存在しなくなり 404 になります。
+  ブックマークや履歴からではなく、「ポート」パネルの地球儀アイコンから開いてください
+- **ポートが転送登録されているか。** パネルに 8501 の行が無ければ「ポートの追加」で
+  8501 を足します。行があるのに 404 なら登録が古いので、Streamlit を止めて
+  パネルから 8501 の行を削除し、起動し直すと登録し直されます
+- **可視性。** Private のままだと、同じブラウザで GitHub にログインしている必要が
+  あります。シークレットウィンドウや別ブラウザでは 404 になります。共有するときは
+  右クリックから「ポートの可視性」を Public にします
+
+なお、ターミナルに出る `Local URL: http://localhost:8501` は Codespace の
+コンテナ内から見たアドレスです。手元の PC のブラウザに貼っても届きません。
 
 ## プロジェクト構成
 
@@ -86,13 +137,14 @@ mleague-stats/
 │   └── devcontainer.json          # Codespaces設定
 ├── .github/workflows/
 │   ├── ci.yml                     # push/PR ごとの検証
-│   └── update-konoui-db.yml       # konoui 新リリースの取り込みPR（週次）
+│   └── update-konoui-db.yml       # konoui の同期（毎日／main へ直接コミット）
 ├── .streamlit/
 │   ├── config.toml                # Streamlit 設定
 │   └── secrets.toml.example       # 補完データ管理を有効にする雛形
 ├── data/
 │   ├── mleague_konoui_slim.sqlite3 # 軽量DB（5MB／Git管理／Cloud はこれを使う）
-│   ├── mleague_local.db           # 補完テーブルのみ（数十KB／Git管理）
+│   ├── mleague_local.db           # 補完テーブル（人が編集／数十KB／Git管理）
+│   ├── ratings.sqlite3            # レーティング（機械が生成／Git管理）
 │   ├── konoui_release.txt         # 取り込み済みの konoui リリースタグ
 │   ├── database.sqlite3           # konoui 配布DB（562MB／任意／.gitignore）
 │   └── mleague.db                 # 移行前の旧DB（参照用に保持）
@@ -134,6 +186,7 @@ mleague-stats/
 ### 補完データ: data/mleague_local.db
 
 konoui DB に無い情報だけを自前で持ちます。数十 KB なので Git 管理します。
+**人が補完データ管理ページから編集するファイル**です。
 
 | テーブル | 内容 |
 |---|---|
@@ -141,8 +194,21 @@ konoui DB に無い情報だけを自前で持ちます。数十 KB なので Gi
 | `team_name_history` | 年度別のチーム名（konoui DB は現行名のみ保持） |
 | `team_meta` | チーム略称・チームカラー |
 | `player_profile` | 選手の生年月日・所属プロ団体 |
-| `player_ratings` / `rating_history` | Elo 風レーティング（アプリ独自の計算結果） |
+
+### 導出データ: data/ratings.sqlite3
+
+レーティングは `recalculate_ratings.py` が丸ごと作り直す**導出データ**なので、
+手編集するファイルとは分けて `ratings` として ATTACH します。同期を自動化すると
+CI がこのファイルを毎日書き換えるため、同居させると手編集とぶつかります。
+
+| テーブル | 内容 |
+|---|---|
+| `player_ratings` | 選手ごとの現在のレートと対局数 |
+| `rating_history` | 対局ごとのレート変動 |
 | `rating_state` | レーティング計算済みフラグ |
+
+`player_ratings.last_updated` にはその選手の**最終対局日**を入れます。
+計算時刻を入れると、対局が増えていない日に再計算しただけで差分が出てしまうためです。
 
 ### 対局時間の取り込み
 
@@ -190,8 +256,9 @@ konoui 配布 DB を `src` として ATTACH し、既存アプリが参照して
 **互換ビュー**で再現しています。既存ページの SQL はほぼそのまま動きます。
 
 ```
-data/database.sqlite3   konoui 配布DB（正データ／読み取り専用）
-data/mleague_local.db   補完テーブルのみ
+data/database.sqlite3   konoui 配布DB（正データ／読み取り専用）  → src
+data/mleague_local.db   補完テーブル（人が編集）                 → main
+data/ratings.sqlite3    レーティング（機械が生成）               → ratings
 ```
 
 ### なぜ TEMP ビューなのか
@@ -531,9 +598,29 @@ python build_slim_db.py     # data/mleague_konoui_slim.sqlite3 を再生成
 python validate_games.py    # 検証
 ```
 
-GitHub Actions が毎週月曜にこれを自動実行し、差分があれば PR を作成します
-（`.github/workflows/update-konoui-db.yml`）。手動実行も可能です。
-取り込み済みのリリースは `data/konoui_release.txt` に記録されます。
+### 同期の自動化
+
+`.github/workflows/update-konoui-db.yml` が**毎日 07:00 JST** に konoui の
+最新リリースを確認し、更新があれば軽量DB とレーティングを作り直して
+**main に直接コミット**します。push をきっかけに Community Cloud が
+再デプロイされるので、手作業は要りません。手動実行も可能です。
+
+konoui のリリースはシーズン中、試合日の翌朝に 1 本というリズムです
+（2026年1月〜9月の70件で間隔の中央値は1.00日）。オフシーズンはリリースが
+出ないため、タグを比較した時点で何もせずに終わります。
+
+処理は 3 段階で止まるようになっています。
+
+1. `data/konoui_release.txt` と konoui の最新タグが同じなら、そこで終了
+2. 軽量DB を作り直しても差分が無ければ、そこで終了。
+   `build_slim_db.py` は決定的なので、同じ配布DB からは常に同じファイルが出ます
+3. 差分があればレーティングを再計算し、検証（互換ビュー・全1,918試合の整合性・
+   全ページの読み込み）を通してからコミット
+
+手編集する `data/mleague_local.db` には CI は一切触れません。
+
+軽量DB は 5.4MB ありますが、中身が末尾に追記されていくだけなので git の差分圧縮が
+効きます。1 試合日ぶんの増分は実測で **16KB**、1 シーズン（約100試合日）で 2MB 程度です。
 
 ### CI
 

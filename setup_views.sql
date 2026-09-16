@@ -46,15 +46,25 @@ CREATE TABLE IF NOT EXISTS player_profile (
 );
 
 -- レーティング: アプリ独自の計算結果。konoui DB には存在しない。
-CREATE TABLE IF NOT EXISTS player_ratings (
+--
+-- main (mleague_local.db) ではなく ratings (ratings.sqlite3) に置く。
+-- main は人が補完データ管理ページから編集するファイル、ratings は
+-- recalculate_ratings.py が丸ごと作り直す導出ファイル。
+-- 同期を自動化すると CI が ratings を毎日書き換えるので、手編集と
+-- ぶつからないようファイルを分けておく。
+--
+-- last_updated は CURRENT_TIMESTAMP ではなくその選手の最終対局日を入れる。
+-- id も AUTOINCREMENT にしない。どちらも、対局が増えていない日に
+-- 再計算しても中身が変わらないようにするため。
+CREATE TABLE IF NOT EXISTS ratings.player_ratings (
     player_id    INTEGER PRIMARY KEY,
     rating       REAL    DEFAULT 1500.0,
     games        INTEGER DEFAULT 0,
-    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    last_updated TEXT
 );
 
-CREATE TABLE IF NOT EXISTS rating_history (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS ratings.rating_history (
+    id           INTEGER PRIMARY KEY,
     player_id    INTEGER NOT NULL,
     game_date    TEXT    NOT NULL,
     old_rating   REAL    NOT NULL,
@@ -65,12 +75,12 @@ CREATE TABLE IF NOT EXISTS rating_history (
     game_number  INTEGER
 );
 
-CREATE INDEX IF NOT EXISTS idx_rating_history_player
+CREATE INDEX IF NOT EXISTS ratings.idx_rating_history_player
     ON rating_history(player_id, game_date);
 
 -- レーティング計算済みフラグ: 旧 game_results.rating_calculated の置き換え。
 -- 互換ビューは更新できないため、フラグだけを補完テーブルで持つ。
-CREATE TABLE IF NOT EXISTS rating_state (
+CREATE TABLE IF NOT EXISTS ratings.rating_state (
     game_id    INTEGER PRIMARY KEY,   -- src.game.id
     calculated INTEGER NOT NULL DEFAULT 0
 );
@@ -176,7 +186,7 @@ FROM src.game_player_result r
 JOIN _game g          ON g.game_id  = r.game_id
 LEFT JOIN _seat s     ON s.game_id  = r.game_id AND s.player_id = r.player_id
 LEFT JOIN main.game_time    t  ON t.game_id  = r.game_id
-LEFT JOIN main.rating_state rs ON rs.game_id = r.game_id;
+LEFT JOIN ratings.rating_state rs ON rs.game_id = r.game_id;
 
 
 -- 既存 players 互換。player_name_kana を追加。

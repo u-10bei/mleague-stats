@@ -1,15 +1,20 @@
-name: konoui DB 更新
+name: konoui DB 同期
 
-# konoui/m-league-game-db の新しいリリースを取り込み、同梱している軽量DB を
-# 作り直して PR を出す。マージすると Community Cloud が自動で再デプロイされる。
+# konoui/m-league-game-db の新しいリリースを取り込み、同梱している軽量DB と
+# レーティングを作り直して main に直接コミットする。
+# push をきっかけに Community Cloud が再デプロイされる。
 #
 # 配布DB は 562MB あるためリポジトリには入れず、ここで毎回ダウンロードして
 # アプリが使う 11 テーブルだけを抜き出す (5MB 程度)。
+#
+# シーズン中、konoui のリリースは試合日の翌朝に 1 本というリズムなので
+# 毎日確認する。オフシーズンはリリースが出ないので、タグを比較した時点で
+# 何もせずに終わる。
 
 on:
   schedule:
-    # 毎週月曜 09:00 JST (= 00:00 UTC)
-    - cron: '0 0 * * 1'
+    # 毎日 07:00 JST (= 22:00 UTC)。前夜の対局が取り込まれたあとを狙う。
+    - cron: '0 22 * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -19,10 +24,14 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
+
+# 同じブランチへ押すので、重なったら前の実行を待たせる
+concurrency:
+  group: konoui-sync
+  cancel-in-progress: false
 
 jobs:
-  update:
+  sync:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,10 +49,10 @@ jobs:
           tag=$(gh release view --repo konoui/m-league-game-db --json tagName -q .tagName)
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           current=$(cat data/konoui_release.txt 2>/dev/null || echo "")
-          echo "current=$current" >> "$GITHUB_OUTPUT"
           echo "konoui 最新: $tag / 取り込み済み: ${current:-なし}"
           if [ "$tag" = "$current" ] && [ "${{ inputs.force }}" != "true" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "取り込み済みのため終了"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -62,39 +71,53 @@ jobs:
         run: |
           pip install -r requirements.txt
           python build_slim_db.py
-          echo "${{ steps.release.outputs.tag }}" > data/konoui_release.txt
+
+      # 軽量DB の生成は決定的なので、中身が同じなら差分は出ない。
+      # konoui がアプリの使わないテーブルだけを直したリリースはここで止まる。
+      - name: 軽量DB に差分があるか
+        id: diff
+        if: steps.release.outputs.skip == 'false'
+        run: |
+          if git diff --quiet -- data/mleague_konoui_slim.sqlite3; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "軽量DB に差分なし"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat -- data/mleague_konoui_slim.sqlite3
+          fi
+
+      # レーティングは対局が増えたときだけ作り直す。
+      # ファイルのヘッダに変更カウンタが入るため、内容が同じでも実行のたびに
+      # バイトは変わる。差分の有無は上の軽量DB で判定する。
+      - name: レーティングを再計算
+        if: steps.diff.outputs.changed == 'true'
+        run: python recalculate_ratings.py
 
       - name: 検証
-        if: steps.release.outputs.skip == 'false'
+        if: steps.diff.outputs.changed == 'true'
         env:
           # 生成した軽量DB だけで成立することを確かめる
           KONOUI_DB_PATH: data/mleague_konoui_slim.sqlite3
+          PYTHONPATH: .
         run: |
           python db_konoui.py
           python validate_games.py
+          for f in app.py pages/*.py; do
+            if out=$(timeout 300 python3 "$f" 2>&1); then
+              echo "OK: $f"
+            else
+              echo "NG: $f"
+              echo "$out" | tail -20
+              exit 1
+            fi
+          done
 
-      - name: 差分があれば PR を作成
-        if: steps.release.outputs.skip == 'false'
+      - name: main にコミット
+        if: steps.diff.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
         run: |
-          # 配布DB は .gitignore 済みなのでコミット対象に入らない
-          if git diff --quiet -- data/mleague_konoui_slim.sqlite3 data/konoui_release.txt; then
-            echo "軽量DB に差分なし"
-            exit 0
-          fi
-
-          branch="chore/konoui-db-${TAG}"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git add data/mleague_konoui_slim.sqlite3 data/konoui_release.txt
-          git commit -m "chore: konoui DB を ${TAG} に更新
-
-          konoui/m-league-game-db の配布DB から、アプリが使う 11 テーブルだけを
-          抜き出した軽量DB を作り直した。"
-          git push -u origin "$branch"
+          echo "$TAG" > data/konoui_release.txt
 
           coverage=$(python - <<'PY'
           import sqlite3
@@ -104,13 +127,21 @@ jobs:
           PY
           )
 
-          gh pr create \
-            --title "chore: konoui DB を ${TAG} に更新" \
-            --body "konoui/m-league-game-db の新しいリリース \`${TAG}\` を取り込みました。
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # 手編集する data/mleague_local.db には触れない
+          git add data/mleague_konoui_slim.sqlite3 data/konoui_release.txt data/ratings.sqlite3
+          git commit -m "chore: konoui DB を ${TAG} に同期
 
           カバー範囲: ${coverage}
 
-          配布DB (562MB) からアプリが参照する 11 テーブルだけを抜き出した軽量DB を
-          作り直しています。CI で全試合の整合性検証を通しています。
+          配布DB からアプリが参照する 11 テーブルだけを抜き出した軽量DB を
+          作り直し、レーティングを再計算した。"
 
-          マージすると Streamlit Community Cloud が自動で再デプロイされます。"
+          # 人の push と重なったときのために、失敗したら一度だけ引き直して押す。
+          # 二度目も失敗したらそのまま落として気づけるようにする。
+          if ! git push origin HEAD:main; then
+            echo "push が弾かれたので rebase して再試行する"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi

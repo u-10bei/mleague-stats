@@ -655,7 +655,7 @@ def update_ratings_for_game(player_ids, ranks, season, game_date, game_number, c
     ratings = []
     for pid in player_ids:
         cursor.execute(
-            "SELECT COALESCE(rating, ?) FROM player_ratings WHERE player_id = ?",
+            "SELECT COALESCE(rating, ?) FROM ratings.player_ratings WHERE player_id = ?",
             (INITIAL_RATING, pid))
         result = cursor.fetchone()
         ratings.append(result[0] if result else INITIAL_RATING)
@@ -665,12 +665,14 @@ def update_ratings_for_game(player_ids, ranks, season, game_date, game_number, c
     for i in range(len(player_ids)):
         old_rating = ratings[i]
         new_rating = old_rating + deltas[i]
+        # last_updated は最終対局日。再計算しても対局が増えていなければ
+        # 値が変わらないので、差分の有無で更新の要否を判定できる。
         cursor.execute("""
-            INSERT OR REPLACE INTO player_ratings (player_id, rating, games, last_updated)
-            VALUES (?, ?, COALESCE((SELECT games FROM player_ratings WHERE player_id = ?), 0) + 1, CURRENT_TIMESTAMP)
-        """, (player_ids[i], new_rating, player_ids[i]))
+            INSERT OR REPLACE INTO ratings.player_ratings (player_id, rating, games, last_updated)
+            VALUES (?, ?, COALESCE((SELECT games FROM ratings.player_ratings WHERE player_id = ?), 0) + 1, ?)
+        """, (player_ids[i], new_rating, player_ids[i], game_date))
         cursor.execute("""
-            INSERT INTO rating_history (player_id, game_date, old_rating, new_rating, delta, opponent_ids, season, game_number)
+            INSERT INTO ratings.rating_history (player_id, game_date, old_rating, new_rating, delta, opponent_ids, season, game_number)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             player_ids[i], game_date, old_rating, new_rating, deltas[i],
@@ -701,7 +703,7 @@ def update_player_rating(player_id, opponent_ratings, actual_rank, game_date):
     # 現在のレートを取得
     cursor.execute("""
         SELECT COALESCE(rating, ?) as rating, COALESCE(games, 0) as games
-        FROM player_ratings
+        FROM ratings.player_ratings
         WHERE player_id = ?
     """, (INITIAL_RATING, player_id))
 
@@ -718,13 +720,13 @@ def update_player_rating(player_id, opponent_ratings, actual_rank, game_date):
     
     # レートを更新
     cursor.execute("""
-        INSERT OR REPLACE INTO player_ratings (player_id, rating, games, last_updated)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-    """, (player_id, new_rating, games + 1))
+        INSERT OR REPLACE INTO ratings.player_ratings (player_id, rating, games, last_updated)
+        VALUES (?, ?, ?, ?)
+    """, (player_id, new_rating, games + 1, game_date))
     
     # 履歴を記録
     cursor.execute("""
-        INSERT INTO rating_history (player_id, game_date, old_rating, new_rating, delta, opponent_ids)
+        INSERT INTO ratings.rating_history (player_id, game_date, old_rating, new_rating, delta, opponent_ids)
         VALUES (?, ?, ?, ?, ?, ?)
     """, (player_id, game_date, old_rating, new_rating, delta, ",".join(map(str, range(3)))))
     
@@ -742,8 +744,9 @@ def initialize_ratings_from_games():
     cursor = conn.cursor()
     
     # 全選手のレートを初期値にリセット
-    cursor.execute("DELETE FROM player_ratings")
-    cursor.execute("DELETE FROM rating_history")
+    cursor.execute("DELETE FROM ratings.player_ratings")
+    cursor.execute("DELETE FROM ratings.rating_history")
+    cursor.execute("DELETE FROM ratings.rating_state")
     
     # 対局単位で4人まとめて処理
     cursor.execute("""
@@ -773,11 +776,14 @@ def initialize_ratings_from_games():
     # rating_calculated フラグを補完テーブルへ記録する。
     # game_results は互換ビューのため UPDATE できない。
     cursor.execute("""
-        INSERT INTO main.rating_state (game_id, calculated)
+        INSERT INTO ratings.rating_state (game_id, calculated)
         SELECT game_id, 1 FROM game_results GROUP BY game_id
         ON CONFLICT(game_id) DO UPDATE SET calculated = 1
     """)
     conn.commit()
+    # DELETE で空いたページが残るとファイルの中身が実行ごとにぶれる。
+    # VACUUM で詰め直し、同じ対局群からは常に同じファイルが出るようにする。
+    conn.execute("VACUUM ratings")
     conn.close()
 
 
@@ -791,7 +797,7 @@ def get_player_ratings():
             pr.rating,
             pr.games,
             pr.last_updated
-        FROM player_ratings pr
+        FROM ratings.player_ratings pr
         JOIN players p ON pr.player_id = p.player_id
         ORDER BY pr.rating DESC
     """, conn)
@@ -800,19 +806,22 @@ def get_player_ratings():
 
 
 def get_player_rating_history(player_id, limit=50):
-    """選手のレーティング履歴を取得"""
+    """選手のレーティング履歴を直近 limit 件だけ取得する（古い順に並べて返す）。
+
+    内側で新しい順に limit 件を切り出し、外側で時系列に並べ直す。
+    ASC のまま LIMIT すると最古の limit 件になってしまう。
+    """
     conn = get_connection()
     df = pd.read_sql_query("""
-        SELECT 
-            game_date,
-            game_number,
-            old_rating,
-            new_rating,
-            delta
-        FROM rating_history
-        WHERE player_id = ?
+        SELECT game_date, game_number, old_rating, new_rating, delta
+        FROM (
+            SELECT game_date, game_number, old_rating, new_rating, delta, id
+            FROM ratings.rating_history
+            WHERE player_id = ?
+            ORDER BY game_date DESC, game_number DESC, id DESC
+            LIMIT ?
+        )
         ORDER BY game_date ASC, game_number ASC, id ASC
-        LIMIT ?
     """, conn, params=(player_id, limit))
     conn.close()
     return df
