@@ -800,19 +800,22 @@ def get_player_ratings():
 
 
 def get_player_rating_history(player_id, limit=50):
-    """選手のレーティング履歴を取得"""
+    """選手のレーティング履歴を直近 limit 件だけ取得する（古い順に並べて返す）。
+
+    内側で新しい順に limit 件を切り出し、外側で時系列に並べ直す。
+    ASC のまま LIMIT すると最古の limit 件になってしまう。
+    """
     conn = get_connection()
     df = pd.read_sql_query("""
-        SELECT 
-            game_date,
-            game_number,
-            old_rating,
-            new_rating,
-            delta
-        FROM rating_history
-        WHERE player_id = ?
+        SELECT game_date, game_number, old_rating, new_rating, delta
+        FROM (
+            SELECT game_date, game_number, old_rating, new_rating, delta, id
+            FROM rating_history
+            WHERE player_id = ?
+            ORDER BY game_date DESC, game_number DESC, id DESC
+            LIMIT ?
+        )
         ORDER BY game_date ASC, game_number ASC, id ASC
-        LIMIT ?
     """, conn, params=(player_id, limit))
     conn.close()
     return df
