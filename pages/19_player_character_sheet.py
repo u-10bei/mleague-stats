@@ -43,9 +43,14 @@ def load():
         data = ch.build(con)
         players = pd.read_sql_query(
             "SELECT player_id, player_name FROM players", con)
+        # チーム名はシーズンで変わる (BEAST Japanext -> BEAST X)。
+        # player_season_stage_base の team_name は konoui の現行名なので、
+        # 年度別の名前を持つ team_names ビューから引き直す。
         teams = pd.read_sql_query(
-            "SELECT start_season_year AS season, player_id, team_name"
-            " FROM player_season_stage_base GROUP BY 1, 2, 3", con)
+            "SELECT pt.season, pt.player_id, tn.team_name"
+            " FROM player_teams pt"
+            " JOIN team_names tn"
+            "   ON tn.team_id = pt.team_id AND tn.season = pt.season", con)
         ratings = pd.read_sql_query(
             "SELECT player_id, rating FROM ratings.player_ratings", con)
     finally:
