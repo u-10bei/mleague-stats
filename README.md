@@ -76,7 +76,58 @@ rm database.zip
 
 1. GitHubリポジトリで「Code」→「Codespaces」→「Create codespace on main」
 2. 自動的に環境がセットアップされます（`pip install` まで実行されます）
-3. ターミナルで `streamlit run app.py`
+3. ターミナルで起動する
+
+```bash
+# バックグラウンドで起動し、待ち受けを確認する
+nohup streamlit run app.py > /tmp/streamlit.log 2>&1 &
+sleep 8
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8501/   # 200 なら成功
+```
+
+4. VS Code の「ポート」パネルで 8501 の行の**地球儀アイコン**をクリックして開く
+
+```bash
+tail -f /tmp/streamlit.log        # ログを追う
+pkill -f "streamlit run app.py"   # 止める
+```
+
+補完データ管理ページも使う場合は、一度止めてから環境変数を付けて起動し直します。
+
+```bash
+pkill -f "streamlit run app.py"
+MLEAGUE_ADMIN=1 nohup streamlit run app.py > /tmp/streamlit.log 2>&1 &
+```
+
+#### 転送先の URL が 404 になるとき
+
+Streamlit はルーティングに一致しないパスでもアプリの HTML を 200 で返すため、
+**404 は Streamlit ではなく GitHub のポート転送プロキシが返しています**。
+アプリが動いているかどうかを、Codespace のターミナルから切り分けてください。
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8501/
+```
+
+`000`（接続失敗）なら Streamlit が起動していません。`streamlit run` は
+フォアグラウンドで動き続けるコマンドなので、プロンプトが返っているなら
+Ctrl+C で止めたか起動に失敗しています。上のバックグラウンド起動を使うか、
+別のターミナルで確認してください。`/tmp/streamlit.log` に原因が出ます。
+
+`200` ならアプリは正常で、ブラウザ側の問題です。
+
+- **URL を手で入力しない。** ホスト名には Codespace 名が埋め込まれているので、
+  作り直したり削除したりすると、その名前のホストは存在しなくなり 404 になります。
+  ブックマークや履歴からではなく、「ポート」パネルの地球儀アイコンから開いてください
+- **ポートが転送登録されているか。** パネルに 8501 の行が無ければ「ポートの追加」で
+  8501 を足します。行があるのに 404 なら登録が古いので、Streamlit を止めて
+  パネルから 8501 の行を削除し、起動し直すと登録し直されます
+- **可視性。** Private のままだと、同じブラウザで GitHub にログインしている必要が
+  あります。シークレットウィンドウや別ブラウザでは 404 になります。共有するときは
+  右クリックから「ポートの可視性」を Public にします
+
+なお、ターミナルに出る `Local URL: http://localhost:8501` は Codespace の
+コンテナ内から見たアドレスです。手元の PC のブラウザに貼っても届きません。
 
 ## プロジェクト構成
 
