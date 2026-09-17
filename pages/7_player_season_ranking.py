@@ -8,6 +8,7 @@ from db import (
     get_connection,
     show_sidebar_navigation
 )
+from ui import fit_chart
 sys.path.append("..")
 
 
@@ -96,19 +97,21 @@ with col1:
         xaxis_title="ポイント",
         yaxis_title="",
         height=600,
-        margin=dict(l=150, r=100, t=50, b=50),
         xaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=2)
     )
 
-    st.plotly_chart(fig, width="stretch")
+    fit_chart(fig, horizontal=True)
+    st.plotly_chart(fig, width='stretch')
 
 with col2:
     # ランキング表（上位10名）
     st.markdown("### 🏆 ランキング TOP10")
 
+    # 幅の広い「所属」は右端へ。狭い画面でも、最初に見えるところに
+    # 順位・選手名・ポイントが入るようにする。
     rank_df = season_df.head(
-        10)[["rank", "player_name", "team_name", "points", "games"]].copy()
-    rank_df.columns = ["順位", "選手名", "所属", "ポイント", "試合数"]
+        10)[["rank", "player_name", "points", "games", "team_name"]].copy()
+    rank_df.columns = ["順位", "選手名", "ポイント", "試合数", "所属"]
     rank_df["ポイント"] = rank_df["ポイント"].apply(lambda x: f"{x:+.1f}")
     rank_df = rank_df.reset_index(drop=True)
 
@@ -143,10 +146,12 @@ if search_name:
         search_name, na=False)]
 
 # 詳細データ表示
-detail_df = filtered_df[["rank", "player_name", "team_name", "games", "points",
-                         "rank_1st", "rank_2nd", "rank_3rd", "rank_4th"]].copy()
-detail_df.columns = ["順位", "選手名", "所属チーム",
-                     "試合数", "ポイント", "1位", "2位", "3位", "4位"]
+# 「所属チーム」は幅を食うわりに読む頻度が低いので右端に回す。
+detail_df = filtered_df[["rank", "player_name", "points", "games",
+                         "rank_1st", "rank_2nd", "rank_3rd", "rank_4th",
+                         "team_name"]].copy()
+detail_df.columns = ["順位", "選手名", "ポイント", "試合数",
+                     "1位", "2位", "3位", "4位", "所属チーム"]
 detail_df["ポイント"] = detail_df["ポイント"].apply(lambda x: f"{x:+.1f}")
 
 # 平均順位を計算
@@ -157,13 +162,17 @@ filtered_df['avg_rank'] = (
     filtered_df['rank_4th'] * 4
 ) / filtered_df['games']
 detail_df["平均順位"] = filtered_df['avg_rank'].apply(lambda x: f"{x:.2f}")
+# 末尾に足した平均順位を、所属チームより前に戻す
+detail_df = detail_df[["順位", "選手名", "ポイント", "試合数", "平均順位",
+                       "1位", "2位", "3位", "4位", "所属チーム"]]
 
 st.dataframe(
     detail_df,
     hide_index=True,
     column_config={
-        "順位": st.column_config.NumberColumn(width="small"),
-        "選手名": st.column_config.TextColumn(width="medium"),
+        "順位": st.column_config.NumberColumn(width=56),
+        # 選手名は固定。横スクロールしても誰の行かを見失わない。
+        "選手名": st.column_config.TextColumn(width=104, pinned=True),
         "所属チーム": st.column_config.TextColumn(width="medium"),
         "試合数": st.column_config.NumberColumn(width="small"),
         "ポイント": st.column_config.TextColumn(width="small"),

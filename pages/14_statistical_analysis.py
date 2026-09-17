@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from db import get_connection, show_sidebar_navigation
+from ui import fit_chart
 sys.path.append("..")
 
 st.set_page_config(
@@ -199,7 +200,8 @@ with tab1:
         yaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=2)
     )
 
-    st.plotly_chart(fig1)
+    fit_chart(fig1)
+    st.plotly_chart(fig1, width='stretch')
 
     # 最高値と最低値の差を表示
     max_seat = df.loc[df['avg_points'].idxmax()]
@@ -229,7 +231,8 @@ with tab2:
         yaxis=dict(range=[1, 4])
     )
 
-    st.plotly_chart(fig2)
+    fit_chart(fig2)
+    st.plotly_chart(fig2, width='stretch')
 
     # 最良と最悪の順位
     best_seat = df.loc[df['avg_rank'].idxmin()]
@@ -293,7 +296,8 @@ with tab3:
         )
     )
 
-    st.plotly_chart(fig3)
+    fit_chart(fig3, horizontal=True)
+    st.plotly_chart(fig3, width='stretch')
 
     st.info("💡 各席での1位〜4位の出現率を積み上げ棒グラフで表示。理想的には各順位が25%ずつになります。")
 
@@ -328,7 +332,8 @@ with tab4:
         yaxis=dict(range=[0, max(df['rate_1st'].max() + 2, 30)])
     )
 
-    st.plotly_chart(fig4)
+    fit_chart(fig4)
+    st.plotly_chart(fig4, width='stretch')
 
     # 25%との差を計算
     st.markdown("#### 理論値（25%）からの乖離")

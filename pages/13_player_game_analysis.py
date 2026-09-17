@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from db import get_connection, show_sidebar_navigation
+from ui import fit_chart, metric_row
 
 st.set_page_config(
     page_title="選手半荘別分析 | Mリーグダッシュボード",
@@ -444,7 +445,7 @@ with tab3:
                          hide_index=True, height=400)
 
             # 統計情報
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3 = metric_row(3)
 
             with col1:
                 best_opponent = player_h2h.iloc[0]
@@ -593,7 +594,8 @@ else:
             showlegend=False
         ))
         fig_p1.update_layout(xaxis_title="曜日", yaxis_title="対局数", height=400)
-        st.plotly_chart(fig_p1, use_container_width=True)
+        fit_chart(fig_p1)
+        st.plotly_chart(fig_p1, width='stretch')
 
     with ptab2:
         st.markdown(f"#### {selected_player_dow} 曜日別 平均ポイント")
@@ -611,7 +613,8 @@ else:
             xaxis_title="曜日", yaxis_title="平均ポイント", height=400,
             yaxis=dict(zeroline=True, zerolinecolor="gray")
         )
-        st.plotly_chart(fig_p2, use_container_width=True)
+        fit_chart(fig_p2)
+        st.plotly_chart(fig_p2, width='stretch')
         best_p = dow_stats_p.loc[dow_stats_p['avg_points'].idxmax()]
         worst_p = dow_stats_p.loc[dow_stats_p['avg_points'].idxmin()]
         st.info(f"💡 平均ポイントが最も高い曜日は **{best_p['dow_name']}曜日**（{best_p['avg_points']:+.2f}pt）、最も低いのは **{worst_p['dow_name']}曜日**（{worst_p['avg_points']:+.2f}pt）です。")
@@ -631,7 +634,8 @@ else:
             xaxis_title="曜日", yaxis_title="平均順位", height=400,
             yaxis=dict(range=[1, 4.5], autorange=False)
         )
-        st.plotly_chart(fig_p3, use_container_width=True)
+        fit_chart(fig_p3)
+        st.plotly_chart(fig_p3, width='stretch')
         best_pr = dow_stats_p.loc[dow_stats_p['avg_rank'].idxmin()]
         worst_pr = dow_stats_p.loc[dow_stats_p['avg_rank'].idxmax()]
         st.info(f"💡 平均順位が最も良い曜日は **{best_pr['dow_name']}曜日**（{best_pr['avg_rank']:.3f}位）、最も悪いのは **{worst_pr['dow_name']}曜日**（{worst_pr['avg_rank']:.3f}位）です。")
@@ -660,7 +664,8 @@ else:
             yaxis=dict(range=[0, 100], dtick=25),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
         )
-        st.plotly_chart(fig_p4, use_container_width=True)
+        fit_chart(fig_p4)
+        st.plotly_chart(fig_p4, width='stretch')
 
 st.markdown("---")
 st.caption("※ データは半荘記録から集計されています。曜日は対局日の曜日です。")

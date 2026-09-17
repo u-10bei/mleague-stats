@@ -10,6 +10,7 @@ from db import (
     get_connection,
     show_sidebar_navigation
 )
+from ui import fit_chart, metric_row
 sys.path.append("..")
 
 st.set_page_config(
@@ -65,19 +66,22 @@ with col1:
         xaxis_title="累積ポイント",
         yaxis_title="",
         height=600,
-        margin=dict(l=150, r=100, t=50, b=50),
         xaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=2)
     )
 
-    st.plotly_chart(fig)
+    fit_chart(fig, horizontal=True)
+    st.plotly_chart(fig, width='stretch')
 
 with col2:
     # 通算順位表（上位10名）
     st.markdown("### 🏆 通算順位 TOP10")
 
-    display_df = cumulative_df.head(10)[["rank", "player_name", "team_name", "total_points",
-                                         "seasons", "avg_points"]].copy()
-    display_df.columns = ["順位", "選手名", "所属", "累積pt", "参加", "平均pt"]
+    # 幅の広い「所属」は右端へ。狭い画面でも、最初に見えるところに
+    # 順位・選手名・累積pt が入るようにする。
+    display_df = cumulative_df.head(10)[["rank", "player_name", "total_points",
+                                         "avg_points", "seasons",
+                                         "team_name"]].copy()
+    display_df.columns = ["順位", "選手名", "累積pt", "平均pt", "参加", "所属"]
     display_df["累積pt"] = display_df["累積pt"].apply(lambda x: f"{x:+.1f}")
     display_df["平均pt"] = display_df["平均pt"].apply(lambda x: f"{x:+.1f}")
 
@@ -135,7 +139,8 @@ if not all_stats.empty:
         )
     )
 
-    st.plotly_chart(fig2)
+    fit_chart(fig2)
+    st.plotly_chart(fig2, width='stretch')
 
 st.markdown("---")
 
@@ -197,7 +202,8 @@ if not all_stats.empty:
         yaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=1)
     )
 
-    st.plotly_chart(fig3)
+    fit_chart(fig3)
+    st.plotly_chart(fig3, width='stretch')
 
 st.markdown("---")
 
@@ -227,11 +233,12 @@ if search_name:
         search_name, na=False)]
 
 # 詳細データ表示
-detail_df = filtered_df[["rank", "player_name", "team_name", "total_games", "total_points",
-                         "total_1st", "total_2nd", "total_3rd", "total_4th",
-                         "seasons", "avg_points"]].copy()
-detail_df.columns = ["順位", "選手名", "所属", "試合数",
-                     "累積pt", "1位", "2位", "3位", "4位", "参加", "平均pt"]
+# 「所属」は幅を食うわりに読む頻度が低いので右端に回す。
+detail_df = filtered_df[["rank", "player_name", "total_points", "avg_points",
+                         "total_games", "total_1st", "total_2nd", "total_3rd",
+                         "total_4th", "seasons", "team_name"]].copy()
+detail_df.columns = ["順位", "選手名", "累積pt", "平均pt", "試合数",
+                     "1位", "2位", "3位", "4位", "参加", "所属"]
 detail_df["累積pt"] = detail_df["累積pt"].apply(lambda x: f"{x:+.1f}")
 detail_df["平均pt"] = detail_df["平均pt"].apply(lambda x: f"{x:+.1f}")
 
@@ -243,13 +250,17 @@ filtered_df['avg_rank'] = (
     filtered_df['total_4th'] * 4
 ) / filtered_df['total_games']
 detail_df["平均順位"] = filtered_df['avg_rank'].apply(lambda x: f"{x:.2f}")
+# 末尾に足した平均順位を、所属より前に戻す
+detail_df = detail_df[["順位", "選手名", "累積pt", "平均pt", "平均順位", "試合数",
+                       "1位", "2位", "3位", "4位", "参加", "所属"]]
 
 st.dataframe(
     detail_df,
     hide_index=True,
     column_config={
-        "順位": st.column_config.NumberColumn(width="small"),
-        "選手名": st.column_config.TextColumn(width="medium"),
+        "順位": st.column_config.NumberColumn(width=56),
+        # 選手名は固定。横スクロールしても誰の行かを見失わない。
+        "選手名": st.column_config.TextColumn(width=104, pinned=True),
         "所属": st.column_config.TextColumn(width="medium"),
         "試合数": st.column_config.NumberColumn(width="small"),
         "累積pt": st.column_config.TextColumn(width="small"),
@@ -282,7 +293,7 @@ player_history = get_player_history(selected_player_id)
 
 if not player_history.empty:
     # 選手の統計情報
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4 = metric_row(4)
 
     with col1:
         total = player_history["points"].sum()
@@ -302,10 +313,12 @@ if not player_history.empty:
 
     st.markdown("#### シーズン成績履歴")
 
-    history_display = player_history[["season", "team_name", "games", "points",
-                                      "rank_1st", "rank_2nd", "rank_3rd", "rank_4th"]].copy()
-    history_display.columns = ["シーズン", "所属チーム",
-                               "試合数", "ポイント", "1位", "2位", "3位", "4位"]
+    # 「所属チーム」は右端へ回して、シーズンとポイントを先に見せる
+    history_display = player_history[["season", "points", "games",
+                                      "rank_1st", "rank_2nd", "rank_3rd",
+                                      "rank_4th", "team_name"]].copy()
+    history_display.columns = ["シーズン", "ポイント", "試合数",
+                               "1位", "2位", "3位", "4位", "所属チーム"]
     history_display["ポイント"] = history_display["ポイント"].apply(
         lambda x: f"{x:+.1f}")
 
@@ -318,6 +331,10 @@ if not player_history.empty:
     ) / player_history['games']
     history_display["平均順位"] = player_history['avg_rank'].apply(
         lambda x: f"{x:.2f}")
+    # 末尾に足した平均順位を、所属チームより前に戻す
+    history_display = history_display[
+        ["シーズン", "ポイント", "平均順位", "試合数",
+         "1位", "2位", "3位", "4位", "所属チーム"]]
 
     st.dataframe(history_display, hide_index=True)
 else:

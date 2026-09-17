@@ -6,6 +6,7 @@ import streamlit as st
 
 import character as ch
 from db import get_connection, show_sidebar_navigation
+from ui import fit_chart
 
 sys.path.append("..")
 
@@ -199,7 +200,8 @@ with radar_col:
                     xanchor="center", x=0.5),
         height=460, margin=dict(l=80, r=80, t=30, b=70),
     )
-    st.plotly_chart(fig, width="stretch")
+    fit_chart(fig)
+    st.plotly_chart(fig, width='stretch')
     st.caption("実線が通算、破線が最新シーズン。目盛りは偏差値（25〜75）。")
 
 with table_col:
@@ -231,14 +233,14 @@ st.subheader("✨ とくせい ｜ シーズンごと")
 if sheet["seasons"]:
     table = []
     for row in sheet["seasons"]:
-        rec = {
-            "シーズン": row["season"],
-            "チーム": team_of_season.get(row["season"], ""),
-            "戦": row["games"],
-            "pt": row["points"],
-        }
+        # この表の主役は 7 軸のランクと とくせい。チーム名は幅を食う
+        # わりに読む頻度が低いので、狭い画面で最初に画面外へ出る右端に置く。
+        rec = {"シーズン": row["season"]}
         rec.update({a: row["rank"][a] for a in ch.AXES})
         rec["とくせい"] = "・".join(t["name"] for t in row["traits"]) or "—"
+        rec["戦"] = row["games"]
+        rec["pt"] = row["points"]
+        rec["チーム"] = team_of_season.get(row["season"], "")
         table.append(rec)
     df = pd.DataFrame(table)
 
@@ -254,12 +256,16 @@ if sheet["seasons"]:
         styled, hide_index=True, width="stretch",
         height=(len(df) + 1) * 35 + 3,
         column_config={
-            "シーズン": st.column_config.NumberColumn(width="small", format="%d"),
-            "チーム": st.column_config.TextColumn(width="medium"),
+            # シーズンは固定。横スクロールしても、どの年の行かを見失わない。
+            "シーズン": st.column_config.NumberColumn(
+                width=72, format="%d", pinned=True),
+            # ランクは 1 文字なので "small" (85px) は広すぎる。
+            # 7 軸ぶん詰めれば、スマホでも 4 軸が最初の画面に入る。
+            **{a: st.column_config.TextColumn(width=52) for a in ch.AXES},
+            "とくせい": st.column_config.TextColumn(width="large"),
             "戦": st.column_config.NumberColumn(width="small"),
             "pt": st.column_config.NumberColumn(width="small"),
-            "とくせい": st.column_config.TextColumn(width="large"),
-            **{a: st.column_config.TextColumn(width="small") for a in ch.AXES},
+            "チーム": st.column_config.TextColumn(width="medium"),
         })
 
     picked = st.selectbox(
