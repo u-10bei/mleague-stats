@@ -1,11 +1,15 @@
 import streamlit as st
 from db import get_teams_for_display, get_season_points, show_sidebar_navigation
+from ui import metric_row
 
 st.set_page_config(
     page_title="Mリーグダッシュボード",
     page_icon="🀄",
     layout="wide",
-    initial_sidebar_state="expanded"
+    # "expanded" にすると、スマホでは初回表示でサイドバーが画面の 8 割を
+    # 覆ってしまう (しかもセッション中はその状態が次のページにも残る)。
+    # "auto" なら Streamlit が画面幅を見て、狭い端末では畳んでくれる。
+    initial_sidebar_state="auto"
 )
 
 # 共通サイドバーナビゲーションを表示
@@ -51,22 +55,50 @@ Mリーグの対戦結果を可視化し、チームや選手の成績を分析�
 # チーム情報を読み込み
 teams_df = get_teams_for_display()
 
-# チームをカード形式で表示
-cols = st.columns(4)
-for idx, row in teams_df.iterrows():
-    with cols[idx % 4]:
-        st.markdown(f"""
-        <div style="
+# チームをカード形式で表示。
+#
+# st.columns(4) だとスマホ (640px 未満) で 10 枚が縦一列に積まれ、
+# チーム一覧だけで 3 画面ぶんスクロールすることになる。
+# CSS グリッドにしておけば、入る幅に応じて 1 → 2 → 4 列と畳んでくれる。
+cards = "".join(
+    f"""<div class="team-card" style="
             background-color: {row['color']}20;
-            border-left: 4px solid {row['color']};
-            padding: 10px;
-            margin: 5px 0;
-            border-radius: 4px;
-        ">
-            <strong>{row['team_name']}</strong><br>
-            <small>設立: {row['established']}年</small>
-        </div>
-        """, unsafe_allow_html=True)
+            border-left: 4px solid {row['color']};">
+        <strong>{row['team_name']}</strong><br>
+        <small>設立: {row['established']}年</small>
+    </div>"""
+    for _, row in teams_df.iterrows()
+)
+st.markdown(
+    """
+    <style>
+    .team-grid {
+        display: grid;
+        /* 1 枚あたり 200px を下限に、入るだけ並べる */
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 8px;
+    }
+    .team-card {
+        padding: 10px;
+        border-radius: 4px;
+        overflow-wrap: anywhere;
+    }
+    /* スマホは 200px だと 1 列に落ちるので、2 列を保てる下限まで下げる */
+    @media (max-width: 640px) {
+        .team-grid {
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 6px;
+        }
+        .team-card {
+            padding: 8px;
+            font-size: 0.85rem;
+        }
+    }
+    </style>
+    """
+    + f'<div class="team-grid">{cards}</div>',
+    unsafe_allow_html=True,
+)
 
 st.markdown("---")
 
@@ -79,7 +111,7 @@ if not season_df.empty:
     st.subheader(f"📈 最新シーズン ({latest_season}) ハイライト")
     st.caption("順位はレギュラー／セミファイナル／ファイナルの到達ステージを加味した最終順位です。")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3 = metric_row(3)
 
     with col1:
         winner = latest.iloc[0]

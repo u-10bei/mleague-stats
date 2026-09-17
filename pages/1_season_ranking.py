@@ -9,6 +9,7 @@ from db import (
     get_connection,
     show_sidebar_navigation
 )
+from ui import fit_chart, metric_row
 sys.path.append("..")
 
 st.set_page_config(
@@ -63,11 +64,11 @@ with col1:
         xaxis_title="ポイント",
         yaxis_title="",
         height=400,
-        margin=dict(l=20, r=100, t=50, b=50),
         xaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=2)
     )
 
-    st.plotly_chart(fig)
+    fit_chart(fig, horizontal=True)
+    st.plotly_chart(fig, width='stretch')
 
 with col2:
     # 順位表
@@ -169,12 +170,13 @@ if game_count > 0:
                            zerolinewidth=1)
             )
 
+            fit_chart(fig1)
             st.plotly_chart(fig1, width='stretch')
 
             # 統計サマリー
             st.markdown("#### 📊 統計情報")
 
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3 = metric_row(3)
 
             with col1:
                 st.metric("対象月数", f"{len(months)}ヶ月")
@@ -255,6 +257,7 @@ if game_count > 0:
                 )
             )
 
+            fit_chart(fig2)
             st.plotly_chart(fig2, width='stretch')
 
             # 最良平均順位の月を表示

@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from db import get_connection, get_current_team_names, show_sidebar_navigation
+from ui import fit_chart, metric_row
 
 st.set_page_config(
     page_title="チーム半荘別分析 | Mリーグダッシュボード",
@@ -525,7 +526,7 @@ with tab3:
                          hide_index=True, height=400)
 
             # 統計情報
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3 = metric_row(3)
 
             with col1:
                 best_opponent = team_h2h.iloc[0]
@@ -609,7 +610,8 @@ with dtab1:
         barmode='group', xaxis_title="曜日", yaxis_title="対局数", height=420,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
     )
-    st.plotly_chart(fig_dt1, use_container_width=True)
+    fit_chart(fig_dt1)
+    st.plotly_chart(fig_dt1, width='stretch')
 
 with dtab2:
     st.markdown("#### チーム別 曜日別 平均ポイント")
@@ -631,7 +633,8 @@ with dtab2:
         yaxis=dict(zeroline=True, zerolinecolor="gray"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
     )
-    st.plotly_chart(fig_dt2, use_container_width=True)
+    fit_chart(fig_dt2)
+    st.plotly_chart(fig_dt2, width='stretch')
 
 with dtab3:
     st.markdown("#### チーム別 曜日別 平均順位")
@@ -652,7 +655,8 @@ with dtab3:
         yaxis=dict(range=[1, 4.5], autorange=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
     )
-    st.plotly_chart(fig_dt3, use_container_width=True)
+    fit_chart(fig_dt3)
+    st.plotly_chart(fig_dt3, width='stretch')
 
 with dtab4:
     st.markdown("#### 曜日別 順位割合（100%積み上げ）")
@@ -694,7 +698,8 @@ with dtab4:
         yaxis=dict(range=[0, 100], dtick=25),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
     )
-    st.plotly_chart(fig_dt4, use_container_width=True)
+    fit_chart(fig_dt4)
+    st.plotly_chart(fig_dt4, width='stretch')
 
 st.markdown("---")
 st.caption("※ データは半荘記録から集計されています。曜日は対局日の曜日です。")

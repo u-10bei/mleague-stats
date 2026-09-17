@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from db import get_connection, get_player_ratings, get_player_rating_history, show_sidebar_navigation
+from ui import fit_chart, metric_row
 
 sys.path.append("..")
 
@@ -56,7 +57,7 @@ with tab1:
         display_df['対局数'] = display_df['対局数'].astype(int)
         
         # 指標表示
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4 = metric_row(4)
         with col1:
             st.metric("📊 登録選手数", len(rating_df))
         with col2:
@@ -131,7 +132,8 @@ with tab1:
             height=500
         )
         
-        st.plotly_chart(fig)
+        fit_chart(fig)
+        st.plotly_chart(fig, width='stretch')
     else:
         st.info("📊 レーティングデータがまだ計算されていません。")
         st.info("データ管理ページで「レーティングを初期化して遡及計算」をクリックしてください。")
@@ -152,7 +154,7 @@ with tab2:
         # 選択した選手の情報
         player_info = rating_df[rating_df['player_id'] == selected_player_id].iloc[0]
         
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4 = metric_row(4)
         with col1:
             st.metric("選手名", player_info['player_name'])
         with col2:
@@ -212,7 +214,8 @@ with tab2:
                 height=400
             )
             
-            st.plotly_chart(fig)
+            fit_chart(fig)
+            st.plotly_chart(fig, width='stretch')
             
             # テーブル表示
             st.markdown("---")

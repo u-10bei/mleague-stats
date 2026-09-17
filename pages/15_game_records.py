@@ -2,6 +2,7 @@ import sys
 import streamlit as st
 import pandas as pd
 from db import get_connection, show_sidebar_navigation
+from ui import metric_row
 sys.path.append("..")
 
 st.set_page_config(
@@ -300,7 +301,7 @@ if not longest_df.empty:
 st.markdown("---")
 st.markdown("### 📊 試合時間の統計")
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4 = metric_row(4)
 
 with col1:
     total_games = len(df)

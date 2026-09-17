@@ -18,6 +18,8 @@ from db_konoui import (  # noqa: F401
     KonouiDatabaseNotFound,
 )
 
+from ui import inject_responsive_css
+
 # 旧 DB_PATH 互換 (書き込み先は補完DB)
 DB_PATH = LOCAL_DB_PATH
 
@@ -65,7 +67,12 @@ def require_admin():
 
 
 def hide_default_sidebar_navigation():
-    """Streamlitのデフォルトサイドバーナビゲーションを非表示にする"""
+    """Streamlit のデフォルトサイドバーナビゲーションを非表示にする。
+
+    ついでに、スマホ・タブレット向けの CSS もここで流し込む。
+    全ページが show_sidebar_navigation() を 1 回ずつ呼んでいるので、
+    各ページを触らずに全画面へ届く。
+    """
     st.markdown("""
     <style>
         [data-testid="stSidebarNav"] {
@@ -73,6 +80,7 @@ def hide_default_sidebar_navigation():
         }
     </style>
     """, unsafe_allow_html=True)
+    inject_responsive_css()
 
 def show_sidebar_navigation():
     """共通のサイドバーナビゲーションを表示"""

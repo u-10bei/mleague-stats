@@ -12,6 +12,7 @@ from db import (
     get_connection,
     show_sidebar_navigation
 )
+from ui import fit_chart, metric_row
 sys.path.append("..")
 
 st.set_page_config(
@@ -59,11 +60,11 @@ with col1:
         xaxis_title="累積ポイント",
         yaxis_title="",
         height=400,
-        margin=dict(l=20, r=100, t=50, b=50),
         xaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=2)
     )
 
-    st.plotly_chart(fig)
+    fit_chart(fig, horizontal=True)
+    st.plotly_chart(fig, width='stretch')
 
 with col2:
     # 順位表
@@ -118,7 +119,8 @@ fig2.update_layout(
     )
 )
 
-st.plotly_chart(fig2)
+fit_chart(fig2)
+st.plotly_chart(fig2, width='stretch')
 
 st.markdown("---")
 
@@ -177,7 +179,8 @@ fig3.update_layout(
     yaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=1)
 )
 
-st.plotly_chart(fig3)
+fit_chart(fig3)
+st.plotly_chart(fig3, width='stretch')
 
 st.markdown("---")
 
@@ -194,7 +197,7 @@ selected_team_id = team_options[selected_team_name]
 
 team_history = get_team_history(selected_team_id)
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4 = metric_row(4)
 
 with col1:
     total = team_history["points"].sum()
@@ -323,12 +326,13 @@ if game_count > 0:
                            zerolinewidth=1)
             )
 
+            fit_chart(fig1)
             st.plotly_chart(fig1, width='stretch')
 
             # 統計サマリー
             st.markdown("#### 📊 統計情報")
 
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3 = metric_row(3)
 
             with col1:
                 st.metric("対象月数", f"{len(months)}ヶ月")
@@ -485,6 +489,7 @@ if game_count > 0:
                     yaxis=dict(range=[0, 100], dtick=25)
                 )
 
+            fit_chart(fig2)
             st.plotly_chart(fig2, width='stretch')
 
             # 最良平均順位の月を表示
