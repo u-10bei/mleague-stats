@@ -18,6 +18,8 @@ konoui DB を `src` として ATTACH し、既存アプリが参照している�
 import os
 import sqlite3
 
+from aggregates import AGGREGATES
+
 # konoui 配布DB (正データ / 読み取り専用 / 562MB / .gitignore)
 FULL_DB_PATH = "data/database.sqlite3"
 # 配布DB からアプリが使うテーブルだけを抜き出した軽量DB (5MB / Git管理)
@@ -123,6 +125,36 @@ def _setup(con):
     with open(SETUP_SQL_PATH, encoding="utf-8") as f:
         script = f.read()
     con.executescript(script)
+    _setup_aggregates(con)
+
+
+def _setup_aggregates(con):
+    """事前集計を TEMP ビューとして見えるようにする。
+
+    軽量DB には build_slim_db.py が焼き込んだテーブルが入っているので
+    そのまま読む。配布DB (562MB) を使っているときは元テーブルが揃って
+    いるので、同じ SELECT をその場で評価するビューを張る。
+    どちらでもアプリからは同じテーブル名で引ける。
+    """
+    for name, select, _ in AGGREGATES:
+        con.execute('DROP VIEW IF EXISTS temp."{}"'.format(name))
+        if _has_baked_table(con, name):
+            body = 'SELECT * FROM src."{}"'.format(name)
+        else:
+            body = select
+        con.execute('CREATE TEMP VIEW "{}" AS {}'.format(name, body))
+
+
+def _has_baked_table(con, name):
+    """src 側に、焼き込み済みの集計テーブルがあるか。
+
+    player_season_stage_stats は konoui 配布DB にも同名のビューがあるが、
+    そちらには player_id が無い。列の有無で見分ける。
+    """
+    cols = {row[1] for row in con.execute('PRAGMA src.table_info("{}")'.format(name))}
+    if not cols:
+        return False
+    return "player_id" in cols
 
 
 def check():
@@ -155,6 +187,12 @@ def check():
                      "player_profile"):
             n = con.execute('SELECT COUNT(*) FROM main."{}"'.format(name)).fetchone()[0]
             print("  {:22} {:>8,}".format(name, n))
+
+        print()
+        print("事前集計:")
+        for name, _, _ in AGGREGATES:
+            n = con.execute('SELECT COUNT(*) FROM "{}"'.format(name)).fetchone()[0]
+            print("  {:30} {:>8,}".format(name, n))
 
         print()
         print("レーティング (ratings):")

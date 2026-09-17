@@ -94,6 +94,8 @@ def show_sidebar_navigation():
     st.sidebar.page_link("pages/16_streak_records.py", label="🔥 連続記録")
     st.sidebar.page_link("pages/15_game_records.py", label="📜 対局記録")
     st.sidebar.page_link("pages/17_player_rating.py", label="📊 レーティング")
+    st.sidebar.page_link("pages/19_player_character_sheet.py",
+                         label="🎴 キャラクターシート")
     if is_admin_enabled():
         st.sidebar.markdown("---")
         st.sidebar.page_link("pages/18_local_data_admin.py",

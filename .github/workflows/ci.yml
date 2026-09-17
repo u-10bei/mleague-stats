@@ -32,6 +32,12 @@ jobs:
       - name: 全試合の整合性を検証
         run: python validate_games.py
 
+      - name: キャラクターシートの計算を検査
+        env:
+          KONOUI_DB_PATH: data/mleague_konoui_slim.sqlite3
+          PYTHONPATH: .
+        run: python character.py --check
+
       - name: 全ページが読み込めることを確認
         env:
           PYTHONPATH: .
