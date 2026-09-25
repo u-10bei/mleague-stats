@@ -101,7 +101,7 @@ def migrate_game_times(old, con):
     for season, date, gnum, start, end in rows:
         row = con.execute(
             "SELECT id FROM src.game"
-            " WHERE date = ? AND match_number = ?"
+            " WHERE date = ? AND day_game_number = ?"
             "   AND substr(m_league_game_id, -1) = 'A'",
             (date, gnum),
         ).fetchone()
