@@ -47,7 +47,7 @@ def check_one_game(con, game_id):
     空リストなら正常。入力画面のチェックにそのまま使える。
     """
     rows = con.execute(
-        "SELECT player_id, score, points, penalty_points, rank"
+        "SELECT player_id, score, league_points, penalty_league_points, rank"
         "  FROM src.game_player_result WHERE game_id = ?"
         " ORDER BY rank, player_id",
         (game_id,),
@@ -148,13 +148,13 @@ def report_stats(con):
 
     drift = con.execute(
         "SELECT COUNT(*) FROM ("
-        "  SELECT game_id, SUM(points) t FROM src.game_player_result"
+        "  SELECT game_id, SUM(league_points) t FROM src.game_player_result"
         "   GROUP BY game_id HAVING t <> 0 AND ABS(t) <= ?)",
         (POINTS_EPSILON,),
     ).fetchone()[0]
 
     penalty = con.execute(
-        "SELECT COUNT(*) FROM src.game_player_result WHERE penalty_points <> 0"
+        "SELECT COUNT(*) FROM src.game_player_result WHERE penalty_league_points <> 0"
     ).fetchone()[0]
 
     print()
@@ -193,7 +193,7 @@ def resolve_game_id(con, date, match_number, venue):
     venue = (venue or "A").strip().upper() or "A"
     row = con.execute(
         "SELECT id FROM src.game"
-        " WHERE date = ? AND match_number = ?"
+        " WHERE date = ? AND day_game_number = ?"
         "   AND substr(m_league_game_id, -1) = ?",
         (date.strip(), int(match_number), venue),
     ).fetchone()

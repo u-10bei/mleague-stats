@@ -124,11 +124,11 @@ SELECT
         ELSE ss.stage
     END                               AS table_type,
     substr(g.m_league_game_id, -1)    AS venue,
-    g.match_number
+    g.day_game_number
         + CASE WHEN substr(g.m_league_game_id, -1) = 'B' THEN 2 ELSE 0 END
                                       AS game_number,
-    g.match_number                    AS match_number,
-    g.round_number                    AS round_number
+    g.day_game_number                 AS match_number,
+    g.stage_game_number               AS round_number
 FROM src.game g
 JOIN src.season_stage  ss ON ss.id = g.season_stage_id
 JOIN src.league_season  ls ON ls.id = ss.league_season_id;
@@ -157,7 +157,7 @@ JOIN src.kyoku_player_result kpr ON kpr.kyoku_id = fk.kyoku_id;
 
 
 -- 既存 game_results 互換。
---   points  : ペナルティを含まない素のポイント (konoui の game_player_result.points)
+--   points  : ペナルティを含まない素のポイント (konoui の game_player_result.league_points)
 --   score   : 素点 (既存スキーマには無いが分析で有用なため追加)
 --   game_id / venue も追加で参照できる。
 CREATE TEMP VIEW game_results AS
@@ -169,7 +169,7 @@ SELECT
     g.game_number,
     s.seat_name,
     r.player_id,
-    r.points,
+    r.league_points                    AS points,
     r.rank,
     NULL                               AS created_at,
     t.start_time,
@@ -181,7 +181,7 @@ SELECT
     g.stage,
     g.match_number,
     r.score,
-    r.penalty_points                   AS penalty
+    r.penalty_league_points            AS penalty
 FROM src.game_player_result r
 JOIN _game g          ON g.game_id  = r.game_id
 LEFT JOIN _seat s     ON s.game_id  = r.game_id AND s.player_id = r.player_id
@@ -218,7 +218,7 @@ LEFT JOIN main.team_meta tm ON tm.team_id = t.id;
 CREATE TEMP VIEW _team_season AS
 SELECT DISTINCT
     tsr.team_id,
-    tsr.league_season_start_year AS season
+    tsr.season_start_year AS season
 FROM src.team_season_stage_result tsr;
 
 
@@ -274,12 +274,12 @@ SELECT
     r.player_id,
     g.season,
     COUNT(*)                            AS games,
-    ROUND(SUM(r.points), 1)             AS points,
+    ROUND(SUM(r.league_points), 1)      AS points,
     SUM(CASE WHEN r.rank = 1 THEN 1 ELSE 0 END) AS rank_1st,
     SUM(CASE WHEN r.rank = 2 THEN 1 ELSE 0 END) AS rank_2nd,
     SUM(CASE WHEN r.rank = 3 THEN 1 ELSE 0 END) AS rank_3rd,
     SUM(CASE WHEN r.rank = 4 THEN 1 ELSE 0 END) AS rank_4th,
-    ROUND(SUM(r.penalty_points), 1)     AS penalty
+    ROUND(SUM(r.penalty_league_points), 1) AS penalty
 FROM src.game_player_result r
 JOIN _game g ON g.game_id = r.game_id
 GROUP BY r.player_id, g.season;
@@ -289,10 +289,10 @@ GROUP BY r.player_id, g.season;
 CREATE TEMP VIEW _team_stage_points AS
 SELECT
     tsr.team_id,
-    tsr.league_season_start_year AS season,
+    tsr.season_start_year   AS season,
     tsr.stage,
-    tsr.base_points,
-    tsr.final_points
+    tsr.stage_league_points AS base_points,
+    tsr.final_league_points AS final_points
 FROM src.team_season_stage_result tsr;
 
 
@@ -301,7 +301,7 @@ CREATE TEMP VIEW _team_penalty AS
 SELECT
     pt.team_id,
     g.season,
-    SUM(r.penalty_points) AS penalty
+    SUM(r.penalty_league_points) AS penalty
 FROM src.game_player_result r
 JOIN _game g          ON g.game_id   = r.game_id
 JOIN src.player_team pt
@@ -376,8 +376,8 @@ SELECT
     g.table_type,
     f.actor_player_id AS player_id,
     p.name            AS player_name,
-    f.type,
-    f.penalty_points,
+    f.foul_type             AS type,
+    f.penalty_league_points AS penalty_points,
     f.is_restarted,
     f.description,
     k.round,

@@ -44,7 +44,7 @@ RANK_STEPS = [(70, "S"), (65, "A"), (60, "B"), (55, "C"),
 
 # 称号にするシーズン個人賞。(表示名, 列, 小さいほど上位か, 表示の書式)
 AWARDS = [
-    ("個人スコア",   "total_points",  False, "{:+.1f}"),
+    ("個人スコア",   "league_points_total", False, "{:+.1f}"),
     ("最多登板",     "games",         False, "{:.0f}戦"),
     ("最高スコア",   "best_score",    False, "{:,.0f}"),
     ("トップ率",     "top_rate",      False, "{:.1f}%"),
@@ -81,7 +81,7 @@ def load_vocab(path=VOCAB_PATH):
 
 def load_stage_rows(con):
     """選手×シーズン×ステージの素カウントを 1 枚にまとめて返す。"""
-    key = ["start_season_year", "stage", "player_id"]
+    key = ["season_start_year", "stage", "player_id"]
     base = pd.read_sql_query("SELECT * FROM player_season_stage_base", con)
     base = base.drop(columns=["player_name", "team_name"])
     for name in ("player_season_stage_discard", "player_season_stage_tenpai",
@@ -90,7 +90,7 @@ def load_stage_rows(con):
                           on=key, how="left")
     count_cols = [c for c in base.columns if c not in key]
     base[count_cols] = base[count_cols].fillna(0)
-    return base.rename(columns={"start_season_year": "season"})
+    return base.rename(columns={"season_start_year": "season"})
 
 
 def combine(rows, by):
@@ -109,7 +109,7 @@ def derive(df):
     """素カウントから率・平均を作る。konoui の統計ビューと同じ定義。"""
     d = df.copy()
     kyoku, games = d.total_kyoku_count, d.total_game_count
-    wins, reach_agari = d.win_count, d.reach_agari_count
+    wins, reach_agari = d.agari_count, d.reach_agari_count
 
     d["win_rate_percent"] = _ratio(wins, kyoku, 100)
     d["dealin_rate_percent"] = _ratio(d.dealin_count, kyoku, 100)
@@ -122,15 +122,15 @@ def derive(df):
         kyoku - wins - d.dealin_count - d.hitsumo_count - d.ryukyoku_count,
         kyoku, 100)
 
-    d["tsumo_win_rate_percent"] = _ratio(d.tsumo_win_count, wins, 100)
+    d["tsumo_win_rate_percent"] = _ratio(d.tsumo_agari_count, wins, 100)
     d["dama_agari_in_win_rate_percent"] = _ratio(
         wins - reach_agari - d.furo_agari_count, wins, 100)
-    d["avg_win_points"] = _ratio(d.win_point_total, wins)
-    d["avg_dealin_points"] = _ratio(d.dealin_point_total, d.dealin_count)
+    d["avg_win_points"] = _ratio(d.agari_points_total, wins)
+    d["avg_dealin_points"] = _ratio(d.dealin_points_total, d.dealin_count)
 
     d["avg_dora_num"] = _ratio(d.dora_total, wins)
     d["avg_aka_dora_num"] = _ratio(d.aka_dora_total, wins)
-    d["ura_dora_nori_rate_percent"] = _ratio(d.ura_dora_win_count, reach_agari, 100)
+    d["ura_dora_nori_rate_percent"] = _ratio(d.ura_dora_agari_count, reach_agari, 100)
 
     d["oya_kaburi_rate_percent"] = _ratio(d.oya_kaburi_count, d.oya_kyoku_count, 100)
     d["itai_oya_kaburi_rate_percent"] = _ratio(
@@ -146,7 +146,7 @@ def derive(df):
     # 事前集計から来る 3 つ
     d["tezukuri_percent"] = _ratio(d.forward + d.hold, d.discards, 100)
     d["avg_wait"] = _ratio(d.wait_tiles_total, d.tenpai_states)
-    d["avg_turn"] = _ratio(d.turn_total, d.agari_count)
+    d["avg_turn"] = _ratio(d.turn_total, d.turn_agari_count)
     waits = ["ryanmen", "kanchan", "shanpon", "tanki", "fukugo",
              "penchan", "nobetan", "aryanmen"]
     for w in waits:
@@ -292,7 +292,7 @@ def awards_table(per_season):
 def yakuman_table(con):
     """役満の 1 件ずつ。名前の横に ★ を回数分置くための材料。"""
     return pd.read_sql_query(
-        "SELECT start_season_year AS season, player_id, game_date, points, yaku"
+        "SELECT season_start_year AS season, player_id, game_date, points, yaku"
         " FROM yakuman_event ORDER BY player_id, game_date", con)
 
 
@@ -335,7 +335,7 @@ def sheet(data, player_id):
         seasons.append({
             "season": int(season),
             "games": int(rrow.total_game_count),
-            "points": float(rrow.total_points),
+            "points": float(rrow.league_points_total),
             "z": {a: round(float(zrow[a]), 2) for a in AXES},
             "rank": {a: rank_of(float(zrow[a])) for a in AXES},
             "traits": t.iloc[0]["traits"] if len(t) else [],
@@ -366,6 +366,30 @@ def sheet(data, player_id):
 
 # ---------------------------------------------------------------------
 
+# konoui の率ビュー (player_season_stage_stats) の列名 -> derive() の列名。
+# derive() 側は character_vocab.json からも引かれるので、konoui の改名
+# (DB_CHANGELOG.md) には追従せず旧名のまま持ち、突合のときだけ読み替える。
+KONOUI_RATE_NAMES = {
+    "agari_per_kyoku_percent":                "win_rate_percent",
+    "dealin_per_kyoku_percent":               "dealin_rate_percent",
+    "furo_per_kyoku_percent":                 "furo_rate_percent",
+    "reach_per_kyoku_percent":                "reach_rate_percent",
+    "tenpai_per_ryukyoku_percent":            "tenpai_rate_percent",
+    "tsumo_agari_per_agari_percent":          "tsumo_win_rate_percent",
+    "dama_agari_per_agari_percent":           "dama_agari_in_win_rate_percent",
+    "agari_points_per_agari":                 "avg_win_points",
+    "dealin_points_per_dealin":               "avg_dealin_points",
+    "dora_per_agari":                         "avg_dora_num",
+    "aka_dora_per_agari":                     "avg_aka_dora_num",
+    "ura_dora_agari_per_reach_agari_percent": "ura_dora_nori_rate_percent",
+    "hitsumo_per_kyoku_percent":              "hitsumo_rate_percent",
+    "oya_kaburi_per_oya_kyoku_percent":       "oya_kaburi_rate_percent",
+    "itai_oya_kaburi_per_oya_kaburi_percent": "itai_oya_kaburi_rate_percent",
+    "renchan_per_oya_kyoku_percent":          "renchan_rate_percent",
+    "yokomove_per_kyoku_percent":             "yokomove_rate_percent",
+}
+
+
 def _check(con, data):
     """不変条件を検査する。1 つでも破れていれば False。"""
     ok = True
@@ -383,13 +407,13 @@ def _check(con, data):
             "SELECT s.* FROM src.player_season_stage_stats s", con)
     except Exception:
         theirs = None
-    if theirs is None or "win_rate_percent" not in theirs.columns:
+    if theirs is None or "agari_per_kyoku_percent" not in theirs.columns:
         print("  --  derive() と konoui の率の突合は配布DB のときだけ行う")
     else:
         names = pd.read_sql_query(
             "SELECT player_id, player_name FROM players", con)
         theirs = theirs.merge(names, on="player_name").rename(
-            columns={"start_season_year": "season"})
+            columns={"season_start_year": "season", **KONOUI_RATE_NAMES})
         mine = derive(load_stage_rows(con))
         m = mine.merge(theirs, on=["season", "stage", "player_id"],
                        suffixes=("_mine", "_theirs"))
