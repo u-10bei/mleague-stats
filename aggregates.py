@@ -100,6 +100,9 @@ GROUP BY a.event_id
 #
 #   てづくり = (forward + hold) / discards
 #
+#   立直中かどうかは player_tenpai_state.is_reached で見る。立直は聴牌が
+#   条件なので、行が無ければ立直していない。
+#
 #   後退を外すのは、それが「まもり」(放銃率 r=-0.37) と
 #   「ねばり」(流局聴牌率 r=-0.43) で既に測られているため。
 #   3 案を比べたとき、この形がいちばん他軸と独立していた
@@ -117,11 +120,13 @@ WITH d AS (
     JOIN src.event  e ON e.id = de.event_id
     JOIN src.player_state ps
          ON ps.event_id = de.event_id AND ps.player_id = de.actor_player_id
+    LEFT JOIN src.player_tenpai_state pts
+         ON pts.event_id = de.event_id AND pts.player_id = de.actor_player_id
     JOIN src.kyoku  k ON k.id = e.kyoku_id
     JOIN src.game   g ON g.id = k.game_id
     JOIN src.season_stage  ss ON ss.id = g.season_stage_id
     JOIN src.league_season ls ON ls.id = ss.league_season_id
-    WHERE ps.is_reached = 0
+    WHERE COALESCE(pts.is_reached, 0) = 0
 ),
 x AS (
     SELECT d.*,
@@ -149,6 +154,10 @@ GROUP BY 1, 2, 3
 #   player_tenpai_state は聴牌中のイベントごとに 1 行入る。待ちが変われば
 #   行が増えるので、行数は「聴牌していた延べイベント数」であって
 #   「聴牌回数」ではない。平均待ち枚数にも待ちの継続時間で重みが付く。
+#
+#   他家の打牌・加槓の時点で聴牌している人の行 (is_actor = 0) も入るが、
+#   数えるのは本人の配牌・打牌の行 (is_actor = 1) と流局時の行だけにする。
+#   流局時の行も is_actor = 0 なので、イベントの種類で拾う。
 TENPAI = """
 SELECT ls.start_year AS season_start_year,
        ss.stage      AS stage,
@@ -169,6 +178,7 @@ JOIN src.kyoku  k ON k.id = e.kyoku_id
 JOIN src.game   g ON g.id = k.game_id
 JOIN src.season_stage  ss ON ss.id = g.season_stage_id
 JOIN src.league_season ls ON ls.id = ss.league_season_id
+WHERE ts.is_actor = 1 OR e.type = 'ryukyoku'
 GROUP BY 1, 2, 3
 """
 
