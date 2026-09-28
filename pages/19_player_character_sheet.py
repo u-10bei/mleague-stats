@@ -73,14 +73,20 @@ def load():
             " JOIN team_names tn"
             "   ON tn.team_id = pt.team_id AND tn.season = pt.season"
             " JOIN teams t ON t.team_id = pt.team_id", con)
+        # レートも、ほかの値と同じくシーズン終了時点のものを出す
         ratings = pd.read_sql_query(
-            "SELECT player_id, rating FROM ratings.player_ratings", con)
+            "SELECT player_id, new_rating AS rating"
+            " FROM ratings.rating_history"
+            " WHERE id IN (SELECT MAX(id) FROM ratings.rating_history"
+            "              WHERE season <= ? GROUP BY player_id)",
+            con, params=(data["as_of_season"],))
     finally:
         con.close()
     return data, players, teams, ratings
 
 
 data, players, teams, ratings = load()
+as_of = data["as_of_season"]
 
 name_of = players.set_index("player_id").player_name.to_dict()
 games_of = data["career_raw"].set_index("player_id").total_game_count.to_dict()
@@ -94,6 +100,11 @@ st.caption(
     "7 軸のレーダーを土台に、ジョブ・とくせい・称号を重ねた選手カードです。"
     "7 軸は強さではなく個性を表すので、ランクは S も G も「特徴あり」を意味します。"
 )
+st.info(
+    f"📅 **{as_of} シーズン終了時点**の成績です。"
+    "このページの値はすべて、進行中のシーズンを含めずに集計しています"
+    "（シーズン中に値が動かないようにするため）。"
+    "今シーズンがデビューの選手は、シーズンが終わってから加わります。")
 
 selected = st.selectbox(
     "選手を選択", options,
@@ -102,7 +113,8 @@ selected = st.selectbox(
 sheet = ch.sheet(data, selected)
 player_name = name_of[selected]
 
-team_rows = teams[teams.player_id == selected].sort_values("season")
+team_rows = teams[(teams.player_id == selected)
+                  & (teams.season <= as_of)].sort_values("season")
 team_label = team_rows.iloc[-1].team_name if len(team_rows) else ""
 team_color = team_rows.iloc[-1].color if len(team_rows) else "#7c857f"
 team_fg = readable_on(team_color)
@@ -113,7 +125,7 @@ rating_value = f"{rating.iloc[0].rating:.0f}" if len(rating) else "—"
 st.markdown("---")
 
 # ========== ジョブ ==========
-# 最新シーズンのチームカラーを背景に敷き、文字色はコントラスト比で決める。
+# 集計範囲 (as_of シーズンまで) で最後に所属したチームのカラーを背景に敷き、文字色はコントラスト比で決める。
 stars = "★" * len(sheet["stars"])
 star_title = " / ".join(f"{x['season']} {x['yaku']}" for x in sheet["stars"])
 stats = [("Lv.", sheet["seasons_n"]), ("出場", f"{sheet['games']}戦"),
@@ -131,7 +143,7 @@ st.markdown(
     f"<span title='役満 {len(sheet['stars'])} 回：{star_title}'"
     f" style='font-size:15px;margin-left:.6em;opacity:.9'>{stars}</span></div>"
     f"<div style='font-size:11px;letter-spacing:.2em;opacity:.75;"
-    f"margin-top:14px'>ジョブ ｜ 通算</div>"
+    f"margin-top:14px'>ジョブ ｜ {as_of} シーズン終了時点</div>"
     f"<div style='font-size:42px;font-weight:700;line-height:1.2'>"
     f"{sheet['job']}</div></div>"
     f"<div style='display:flex;gap:28px'>"
@@ -168,7 +180,7 @@ else:
 st.markdown("---")
 
 # ========== パラメータ ==========
-st.subheader("📊 パラメータ")
+st.subheader(f"📊 パラメータ ｜ {as_of} シーズン終了時点")
 
 latest = sheet["seasons"][-1] if sheet["seasons"] else None
 radar_col, table_col = st.columns([1, 1])
@@ -202,7 +214,8 @@ with radar_col:
     )
     fit_chart(fig)
     st.plotly_chart(fig, width='stretch')
-    st.caption("実線が通算、破線が最新シーズン。目盛りは偏差値（25〜75）。")
+    st.caption(f"実線が {as_of} シーズンまでの通算、破線がその選手の直近のシーズン。"
+               "目盛りは偏差値（25〜75）。")
 
 with table_col:
     rows = []
@@ -228,7 +241,7 @@ with table_col:
 st.markdown("---")
 
 # ========== とくせい ==========
-st.subheader("✨ とくせい ｜ シーズンごと")
+st.subheader(f"✨ とくせい ｜ シーズンごと（{as_of} シーズンまで）")
 
 if sheet["seasons"]:
     table = []
@@ -291,7 +304,7 @@ else:
 st.markdown("---")
 
 # ========== 称号 ==========
-st.subheader("🏅 称号 ｜ シーズン個人賞・3 位まで")
+st.subheader(f"🏅 称号 ｜ シーズン個人賞・3 位まで（{as_of} シーズンまで）")
 
 if sheet["titles"]:
     st.dataframe(

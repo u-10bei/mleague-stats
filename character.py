@@ -6,6 +6,9 @@
     とくせい    7 軸とは別の指標から拾う、その年の特徴   シーズンごと
     称号        シーズン個人賞 8 種の 3 位まで ＋ 役満    シーズンごと
 
+四層とも、終わったシーズンまでの成績だけで計算する (completed_rows)。
+進行中のシーズンは含めない。
+
 元になる素カウントは aggregates.py が選手×シーズン×ステージで持っている。
 率はここで「分子の和 / 分母の和」として出す。率を出場数で加重平均すると
 局数の違いを吸収できないため、合算の前に率にしない。
@@ -201,6 +204,18 @@ def league_raw(rows):
     return derive(combine(all_rows, ["_all"])).iloc[0]
 
 
+def completed_rows(rows):
+    """終わったシーズンだけの素カウント。キャラクターシートはすべてこれで作る。
+
+    データ上の最新シーズンを進行中とみなして外す。シートは選手の看板なので、
+    シーズン中の 1 試合ごとや、konoui の再計算による細かな値の動きで
+    変わらないようにする。
+    オフシーズンのあいだは、最新シーズンが終わっていても次のシーズンが
+    始まるまで入らない。
+    """
+    return rows[rows.season < rows.season.max()]
+
+
 def career_axes(rows):
     """通算の 7 軸。
 
@@ -303,17 +318,21 @@ def yakuman_table(con):
 def build(con, vocab=None):
     """全選手ぶんの計算結果をまとめて返す。ページ側でキャッシュする前提。"""
     vocab = vocab or load_vocab()
-    rows = load_stage_rows(con)
+    rows = completed_rows(load_stage_rows(con))
+    as_of = int(rows.season.max())
     s_z, s_per = season_axes(rows)
     c_z, c_per = career_axes(rows)
+    yakuman = yakuman_table(con)
     return {
         "vocab": vocab,
+        # どのシーズンの終了時点までで計算したか
+        "as_of_season": as_of,
         "season_z": s_z, "season_raw": s_per,
         "career_z": c_z, "career_raw": c_per,
         "league_raw": league_raw(rows),
         "traits": traits_table(s_per, vocab),
         "awards": awards_table(s_per),
-        "yakuman": yakuman_table(con),
+        "yakuman": yakuman[yakuman.season <= as_of],
     }
 
 
@@ -328,7 +347,9 @@ def sheet(data, player_id):
     sz = data["season_z"].set_index("player_id")
     sraw = data["season_raw"].set_index("player_id")
     tr = data["traits"].set_index("player_id")
-    for season in sorted(sraw.loc[[player_id]].season):
+    # 最小出場数に届いたシーズンが 1 つも無い選手 (今シーズンがデビューで
+    # まだ数試合) もいるので、.loc で引かず絞り込む
+    for season in sorted(sraw[sraw.index == player_id].season):
         zrow = sz.loc[[player_id]].query("season == @season").iloc[0]
         rrow = sraw.loc[[player_id]].query("season == @season").iloc[0]
         t = tr.loc[[player_id]].query("season == @season")
@@ -473,8 +494,11 @@ def _check(con, data):
 
     # 7. 出場数の合計が素データと合う
     total = int(data["career_raw"].total_game_count.sum())
-    expect = pd.read_sql_query("SELECT COUNT(*) n FROM game_results", con).n[0]
-    report("延べ出場数が game_results と一致", total == expect,
+    expect = pd.read_sql_query(
+        "SELECT COUNT(*) n FROM game_results WHERE season <= ?", con,
+        params=(data["as_of_season"],)).n[0]
+    report(f"延べ出場数が game_results ({data['as_of_season']} シーズンまで) と一致",
+           total == expect,
            f" {total} / {expect}")
     return ok
 
@@ -518,7 +542,8 @@ def _main(argv):
     jobs = {}
     for pid in data["career_z"].player_id:
         jobs[name_of.get(pid, pid)] = sheet(data, pid)["job"]
-    print(f"選手 {len(jobs)} 名 / 型 {len(set(jobs.values()))} 種")
+    print(f"{data['as_of_season']} シーズン終了時点 / 選手 {len(jobs)} 名"
+          f" / 型 {len(set(jobs.values()))} 種")
     print(f"遊撃手 {sum(1 for v in jobs.values() if v == data['vocab']['balanced'])} 名")
     n = data["traits"].traits.apply(len)
     print(f"とくせい 平均 {n.mean():.2f} 個 / 0個 {int((n == 0).sum())} "
