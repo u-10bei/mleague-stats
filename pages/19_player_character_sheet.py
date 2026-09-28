@@ -109,6 +109,13 @@ team_fg = readable_on(team_color)
 team_of_season = dict(zip(team_rows.season, team_rows.team_name))
 rating = ratings[ratings.player_id == selected]
 rating_value = f"{rating.iloc[0].rating:.0f}" if len(rating) else "—"
+if sheet["job"]:
+    job_label = f"ジョブ ｜ {sheet['job_season']} シーズンまで"
+    job_text = sheet["job"]
+else:
+    # 終わったシーズンに出場していない選手は、デビューしたシーズンが終わるまで判定しない
+    job_label = "ジョブ"
+    job_text = "判定前"
 
 st.markdown("---")
 
@@ -131,9 +138,9 @@ st.markdown(
     f"<span title='役満 {len(sheet['stars'])} 回：{star_title}'"
     f" style='font-size:15px;margin-left:.6em;opacity:.9'>{stars}</span></div>"
     f"<div style='font-size:11px;letter-spacing:.2em;opacity:.75;"
-    f"margin-top:14px'>ジョブ ｜ 通算</div>"
+    f"margin-top:14px'>{job_label}</div>"
     f"<div style='font-size:42px;font-weight:700;line-height:1.2'>"
-    f"{sheet['job']}</div></div>"
+    f"{job_text}</div></div>"
     f"<div style='display:flex;gap:28px'>"
     + "".join(
         f"<div><div style='font-size:11px;letter-spacing:.14em;opacity:.75'>"
@@ -345,7 +352,9 @@ with st.expander("ℹ️ 読み方"):
         f"通算の 7 軸のうち **{data['vocab']['job_threshold']}σ** を超えたものを強い順に並べ、"
         "1 番目からクラス名、2 番目から形容詞、3 番目から修飾を取って組み立てます"
         "（例: ねばり高 ＋ まもり低 →「大胆な闘士」）。"
-        f"1 つも超えなければ万能クラス（{data['vocab']['balanced']}）です。")
+        f"1 つも超えなければ万能クラス（{data['vocab']['balanced']}）です。"
+        f"シーズン中に変わらないよう、**{data['job_season']} シーズン終了時点**までの"
+        "通算で判定します。今シーズンがデビューの選手は、シーズンが終わるまで「判定前」です。")
 
     st.markdown("#### とくせい")
     st.markdown(
