@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """キャラクターシートの四層を計算する。
 
-    ジョブ      前シーズンまでの通算の 7 軸から組み立てる名前  シーズン中は変わらない
+    ジョブ      通算の 7 軸から組み立てる名前            変わらない
     パラメータ  7 軸のレーダーとランク                   シーズン / 通算
     とくせい    7 軸とは別の指標から拾う、その年の特徴   シーズンごと
     称号        シーズン個人賞 8 種の 3 位まで ＋ 役満    シーズンごと
+
+四層とも、終わったシーズンまでの成績だけで計算する (completed_rows)。
+進行中のシーズンは含めない。
 
 元になる素カウントは aggregates.py が選手×シーズン×ステージで持っている。
 率はここで「分子の和 / 分母の和」として出す。率を出場数で加重平均すると
@@ -202,9 +205,9 @@ def league_raw(rows):
 
 
 def completed_rows(rows):
-    """ジョブの判定に使う、終わったシーズンだけの素カウント。
+    """終わったシーズンだけの素カウント。キャラクターシートはすべてこれで作る。
 
-    データ上の最新シーズンを進行中とみなして外す。ジョブは選手の看板なので、
+    データ上の最新シーズンを進行中とみなして外す。シートは選手の看板なので、
     シーズン中の 1 試合ごとや、konoui の再計算による細かな値の動きで
     変わらないようにする。
     オフシーズンのあいだは、最新シーズンが終わっていても次のシーズンが
@@ -229,7 +232,7 @@ def career_axes(rows):
 # ---------------------------------------------------------------------
 
 def job_of(zrow, vocab):
-    """通算の 7 軸からジョブ名を組み立てる。zrow は job_axes() の 1 行。
+    """通算の 7 軸からジョブ名を組み立てる。
 
     閾値を超えた軸を強い順に並べ、1 番目からクラス名、2 番目から形容詞、
     3 番目から修飾を取る。1 つも超えなければ万能クラス (遊撃手)。
@@ -315,22 +318,21 @@ def yakuman_table(con):
 def build(con, vocab=None):
     """全選手ぶんの計算結果をまとめて返す。ページ側でキャッシュする前提。"""
     vocab = vocab or load_vocab()
-    rows = load_stage_rows(con)
+    rows = completed_rows(load_stage_rows(con))
+    as_of = int(rows.season.max())
     s_z, s_per = season_axes(rows)
     c_z, c_per = career_axes(rows)
-    done = completed_rows(rows)
-    j_z = career_axes(done)[0] if len(done) else c_z.iloc[0:0]
+    yakuman = yakuman_table(con)
     return {
         "vocab": vocab,
+        # どのシーズンの終了時点までで計算したか
+        "as_of_season": as_of,
         "season_z": s_z, "season_raw": s_per,
         "career_z": c_z, "career_raw": c_per,
-        # ジョブは終わったシーズンまでの通算で決める (completed_rows)
-        "job_z": j_z,
-        "job_season": int(done.season.max()) if len(done) else None,
         "league_raw": league_raw(rows),
         "traits": traits_table(s_per, vocab),
         "awards": awards_table(s_per),
-        "yakuman": yakuman_table(con),
+        "yakuman": yakuman[yakuman.season <= as_of],
     }
 
 
@@ -339,12 +341,7 @@ def sheet(data, player_id):
     vocab = data["vocab"]
     cz = data["career_z"].set_index("player_id").loc[player_id]
     craw = data["career_raw"].set_index("player_id").loc[player_id]
-    jz = data["job_z"].set_index("player_id")
-    if player_id in jz.index:
-        job, parts = job_of(jz.loc[player_id], vocab)
-    else:
-        # 終わったシーズンに出場していない (今シーズンがデビュー)
-        job, parts = None, []
+    job, parts = job_of(cz, vocab)
 
     seasons = []
     sz = data["season_z"].set_index("player_id")
@@ -375,7 +372,7 @@ def sheet(data, player_id):
 
     return {
         "player_id": int(player_id),
-        "job": job, "job_parts": parts, "job_season": data["job_season"],
+        "job": job, "job_parts": parts,
         "seasons_n": len(seasons),
         "games": int(craw.total_game_count),
         "win_rate": round(float(craw.win_rate_percent), 2),
@@ -474,10 +471,9 @@ def _check(con, data):
         report(f"{label}の z 値が平均0・標準偏差1", mean < 1e-9 and sd < 1e-9,
                f" 平均のずれ {mean:.2e} / σ のずれ {sd:.2e}")
 
-    # 3. 終わったシーズンに出場した全員にジョブ名が付く
-    jobs = [job_of(r, data["vocab"])[0] for _, r in data["job_z"].iterrows()]
-    report(f"{data['job_season']} シーズンまでに出場した全 {len(jobs)} 名に"
-           "ジョブ名が付く", bool(jobs) and all(jobs),
+    # 3. ジョブ名が全員に付く
+    jobs = [job_of(r, data["vocab"])[0] for _, r in data["career_z"].iterrows()]
+    report(f"全 {len(jobs)} 名にジョブ名が付く", all(jobs),
            f" / {len(set(jobs))} 種")
 
     # 4. ランクが S〜G に収まる
@@ -498,8 +494,11 @@ def _check(con, data):
 
     # 7. 出場数の合計が素データと合う
     total = int(data["career_raw"].total_game_count.sum())
-    expect = pd.read_sql_query("SELECT COUNT(*) n FROM game_results", con).n[0]
-    report("延べ出場数が game_results と一致", total == expect,
+    expect = pd.read_sql_query(
+        "SELECT COUNT(*) n FROM game_results WHERE season <= ?", con,
+        params=(data["as_of_season"],)).n[0]
+    report(f"延べ出場数が game_results ({data['as_of_season']} シーズンまで) と一致",
+           total == expect,
            f" {total} / {expect}")
     return ok
 
@@ -524,7 +523,7 @@ def _main(argv):
             print(f"選手が見つかりません: {argv[1]}", file=sys.stderr)
             return 1
         s = sheet(data, pid)
-        print(f"{argv[1]}  {s['job'] or 'ジョブ判定前'}  Lv.{s['seasons_n']} / {s['games']}戦 "
+        print(f"{argv[1]}  {s['job']}  Lv.{s['seasons_n']} / {s['games']}戦 "
               f"/ 和了率 {s['win_rate']}%  {'★' * len(s['stars'])}")
         for p in s["job_parts"]:
             print(f"  {p['role']:6} {p['word']:8} {p['axis']}{p['dir']} "
@@ -541,9 +540,9 @@ def _main(argv):
         return 0
 
     jobs = {}
-    for pid in data["job_z"].player_id:
+    for pid in data["career_z"].player_id:
         jobs[name_of.get(pid, pid)] = sheet(data, pid)["job"]
-    print(f"ジョブ ({data['job_season']} シーズンまで) 選手 {len(jobs)} 名"
+    print(f"{data['as_of_season']} シーズン終了時点 / 選手 {len(jobs)} 名"
           f" / 型 {len(set(jobs.values()))} 種")
     print(f"遊撃手 {sum(1 for v in jobs.values() if v == data['vocab']['balanced'])} 名")
     n = data["traits"].traits.apply(len)
