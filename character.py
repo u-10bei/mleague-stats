@@ -46,17 +46,23 @@ RANK_STEPS = [(70, "S"), (65, "A"), (60, "B"), (55, "C"),
               (45, "D"), (40, "E"), (35, "F")]
 
 # 称号にするシーズン個人賞。(表示名, 列, 小さいほど上位か, 表示の書式)
+# 順位は同じ記録なら同順位 (award_ranking)。
 AWARDS = [
     ("個人スコア",   "league_points_total", False, "{:+.1f}"),
     ("最多登板",     "games",         False, "{:.0f}戦"),
     ("最高スコア",   "best_score",    False, "{:,.0f}"),
     ("トップ率",     "top_rate",      False, "{:.1f}%"),
-    ("ラス回避率",   "last_rate",     True,  "{:.1f}%"),
+    ("ラス回避率",   "avoid_last_rate", False, "{:.1f}%"),
     ("和了率",       "win_rate",      False, "{:.1f}%"),
     ("放銃率の低さ", "dealin_rate",   True,  "{:.1f}%"),
     ("平均和了巡目", "avg_turn",      True,  "{:.2f}巡"),
 ]
 AWARD_PLACES = 3
+
+# 率の賞。出場の少ない選手の率は 0% や 100% に振れるので、ランキングページでは
+# 規定出場数を満たす選手だけで順位を付ける。回数・合計・最大の賞には設けない。
+RATE_AWARD_COLS = {"top_rate", "avoid_last_rate", "win_rate", "dealin_rate",
+                   "avg_turn"}
 
 # 素カウントの合算規則。best_score だけは MAX。
 _MAX_COLS = {"best_score"}
@@ -142,6 +148,7 @@ def derive(df):
 
     d["top_rate"] = _ratio(d.rank1_count, games, 100)
     d["last_rate"] = _ratio(d.rank4_count, games, 100)
+    d["avoid_last_rate"] = 100 - d["last_rate"]
     d["win_rate"] = d["win_rate_percent"]
     d["dealin_rate"] = d["dealin_rate_percent"]
     d["games"] = games
@@ -289,14 +296,33 @@ def traits_table(per_season, vocab):
 # 称号
 # ---------------------------------------------------------------------
 
+def season_stats(con):
+    """選手×シーズンの実測値。進行中のシーズンも含め、出場数の足切りもしない。
+
+    キャラクターシートは build() で終わったシーズンだけを使う。こちらは
+    称号ランキングのページが、今シーズンの暫定順位を出すために使う。
+    """
+    return derive(combine(load_stage_rows(con), ["season", "player_id"]))
+
+
+def award_ranking(per_season, col, ascending):
+    """1 つの賞の、シーズンごとの順位。同じ記録なら同順位 (1, 2, 2, 4)。
+
+    率は分子・分母が違っても同じ値になる (3/30 と 4/40) が、浮動小数の
+    誤差で順位が割れないよう、丸めてから比べる。
+    """
+    d = per_season.dropna(subset=[col]).copy()
+    d["place"] = (d[col].round(9).groupby(d.season)
+                  .rank(method="min", ascending=ascending).astype(int))
+    return d.sort_values(["season", "place", "player_id"])
+
+
 def awards_table(per_season):
-    """シーズン個人賞。全ステージ合算、3 位まで、規定打数は設けない。"""
+    """シーズン個人賞。全ステージ合算、3 位まで (同順位があれば 4 人以上)。"""
     rows = []
     for label, col, ascending, fmt in AWARDS:
-        d = per_season.dropna(subset=[col])
-        top = d.sort_values(["season", col], ascending=[True, ascending]) \
-               .groupby("season").head(AWARD_PLACES).copy()
-        top["place"] = top.groupby("season").cumcount() + 1
+        ranked = award_ranking(per_season, col, ascending)
+        top = ranked[ranked.place <= AWARD_PLACES]
         for r in top.itertuples():
             rows.append({"season": int(r.season), "player_id": int(r.player_id),
                          "award": label, "place": int(r.place),
@@ -487,10 +513,15 @@ def _check(con, data):
     report(f"とくせいがすべて z>={th}", all(z >= th for z in zs),
            f" 最小 {min(zs):.2f} / 計 {len(zs)} 個" if zs else "")
 
-    # 6. 称号は 1 賞につき 1 シーズン 3 件
-    per = data["awards"].groupby(["season", "award"]).size()
-    report("称号が 1 賞 1 シーズンあたり 3 件", bool((per == AWARD_PLACES).all()),
-           f" 計 {len(data['awards'])} 件")
+    # 6. 称号は 1 賞につき 1 シーズン 3 件以上 (同順位があれば増える)、
+    #    順位は 1〜3 位に収まり、1 位は必ずいる
+    aw = data["awards"]
+    per = aw.groupby(["season", "award"])
+    ok_award = (bool((per.size() >= AWARD_PLACES).all())
+                and bool((per.place.min() == 1).all())
+                and bool(aw.place.between(1, AWARD_PLACES).all()))
+    report("称号が 1 賞 1 シーズンあたり 3 位まで", ok_award,
+           f" 計 {len(aw)} 件 (同順位で 4 件以上の賞 {int((per.size() > AWARD_PLACES).sum())})")
 
     # 7. 出場数の合計が素データと合う
     total = int(data["career_raw"].total_game_count.sum())
