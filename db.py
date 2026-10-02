@@ -104,6 +104,7 @@ def show_sidebar_navigation():
     st.sidebar.page_link("pages/17_player_rating.py", label="📊 レーティング")
     st.sidebar.page_link("pages/19_player_character_sheet.py",
                          label="🎴 キャラクターシート")
+    st.sidebar.page_link("pages/20_award_ranking.py", label="🏅 称号ランキング")
     if is_admin_enabled():
         st.sidebar.markdown("---")
         st.sidebar.page_link("pages/18_local_data_admin.py",
