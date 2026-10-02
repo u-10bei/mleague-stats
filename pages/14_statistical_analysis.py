@@ -1,402 +1,330 @@
-import sys
-import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import streamlit as st
+
 from db import get_connection, show_sidebar_navigation
-from ui import fit_chart
-sys.path.append("..")
+from ui import fit_chart, metric_row
 
 st.set_page_config(
     page_title="統計分析 | Mリーグダッシュボード",
     page_icon="🀄",
-    layout="wide"
+    layout="wide",
 )
 
-# デフォルトのサイドバーナビゲーションを非表示
 show_sidebar_navigation()
 
-# サイドバーナビゲーションは共通関数で表示されています
+# 単色の系列と、濃淡・正負の配色。
+# 正負 (平均からのずれ) は青↔赤の 2 色に灰の中点、大きさ (割合) は青の濃淡。
+# 濃い側を中くらいの青で止めるのは、セルの上の黒い数字を読めるようにするため。
+BLUE = "#2a78d6"
+SEQUENTIAL = [[0, "#f3f7fd"], [1, "#6fa6ea"]]
+DIVERGING = [[0, "#e98a89"], [0.5, "#f0efec"], [1, "#7fb0ee"]]
+
+SEATS = ["東", "南", "西", "北"]
+RANKS = [1, 2, 3, 4]
+
+# 自由度 9 (席 4 × 着順 4) のカイ二乗分布の上側 5% 点
+CHI2_CRIT_DF9 = 16.92
+
+
+@st.cache_data(show_spinner="集計中...")
+def load():
+    """半荘単位と局単位のデータをまとめて読む。期間の絞り込みは画面側で行う。"""
+    con = get_connection(readonly_local=True)
+    try:
+        results = pd.read_sql_query(
+            "SELECT game_id, season, stage, table_type, seat_name, player_id,"
+            "       points, rank, score"
+            "  FROM game_results", con)
+        # 局ごとの終了時点の順位。kyoku_player_result の score/rank は
+        # その局を精算したあとの値 (最終局の値は半荘の最終結果と一致する)。
+        kyoku = pd.read_sql_query(
+            "SELECT k.id AS kyoku_id, k.game_id, k.round, k.honba_count"
+            "  FROM src.kyoku k", con)
+        kyoku_rank = pd.read_sql_query(
+            "SELECT kyoku_id, player_id, rank FROM src.kyoku_player_result", con)
+    finally:
+        con.close()
+    return results, kyoku, kyoku_rank
+
+
+results, kyoku, kyoku_rank = load()
+# データ上の最新シーズンは進行中。推移グラフでは「暫定」と添える
+current_season = results.season.max()
+
+
+def season_label(s):
+    return f"{s}（暫定）" if s == current_season else str(s)
 
 st.title("📈 統計分析")
+st.markdown(
+    "チームや選手に関係なく、**リーグ全体の傾向**を見るページです。"
+    "席順による有利・不利、半荘の長さ、着順ごとの素点、途中経過からの逆転を、"
+    "すべての対局をまとめて集計します。")
 
-st.markdown("""
-半荘記録から集計した統計データを分析します。
-- **席順別統計**: 東・南・西・北の各席のパフォーマンスを比較
-- 期間を指定して分析可能
-""")
-
-# ========== データ取得 ==========
-conn = get_connection()
-cursor = conn.cursor()
-
-# 利用可能なシーズンを取得
-cursor.execute("""
-    SELECT DISTINCT season 
-    FROM game_results 
-    ORDER BY season DESC
-""")
-seasons = [row[0] for row in cursor.fetchall()]
-
-if not seasons:
-    st.warning("半荘記録データがありません。先に「🎮 半荘記録入力」でデータを登録してください。")
-    conn.close()
-    st.stop()
-
-conn.close()
-
-# ========== フィルター設定 ==========
-st.markdown("---")
-st.subheader("🔍 分析期間")
-
-col1, col2 = st.columns([1, 3])
-
-with col1:
-    period_options = ["全期間"] + seasons
-    selected_period = st.selectbox("期間", period_options, key="period_select")
-
-with col2:
-    if selected_period == "全期間":
-        st.info(f"📊 全期間のデータを分析します（{len(seasons)}シーズン）")
-    else:
-        st.info(f"📊 {selected_period}シーズンのデータを分析します")
-
-# ========== 席順別統計分析 ==========
-st.markdown("---")
-st.subheader("🧭 席順別パフォーマンス分析")
-
-st.markdown("""
-各席（東・南・西・北）での全選手の成績を集計し、席による有利・不利を分析します。
-""")
-
-# データ取得
-conn = get_connection()
-
-if selected_period == "全期間":
-    query = """
-        SELECT 
-            seat_name,
-            COUNT(*) as games,
-            AVG(points) as avg_points,
-            AVG(rank) as avg_rank,
-            SUM(CASE WHEN rank = 1 THEN 1 ELSE 0 END) as rank_1st,
-            SUM(CASE WHEN rank = 2 THEN 1 ELSE 0 END) as rank_2nd,
-            SUM(CASE WHEN rank = 3 THEN 1 ELSE 0 END) as rank_3rd,
-            SUM(CASE WHEN rank = 4 THEN 1 ELSE 0 END) as rank_4th
-        FROM game_results
-        GROUP BY seat_name
-        ORDER BY 
-            CASE seat_name
-                WHEN '東' THEN 1
-                WHEN '南' THEN 2
-                WHEN '西' THEN 3
-                WHEN '北' THEN 4
-            END
-    """
-    cursor = conn.cursor()
-    cursor.execute(query)
-else:
-    query = """
-        SELECT 
-            seat_name,
-            COUNT(*) as games,
-            AVG(points) as avg_points,
-            AVG(rank) as avg_rank,
-            SUM(CASE WHEN rank = 1 THEN 1 ELSE 0 END) as rank_1st,
-            SUM(CASE WHEN rank = 2 THEN 1 ELSE 0 END) as rank_2nd,
-            SUM(CASE WHEN rank = 3 THEN 1 ELSE 0 END) as rank_3rd,
-            SUM(CASE WHEN rank = 4 THEN 1 ELSE 0 END) as rank_4th
-        FROM game_results
-        WHERE season = ?
-        GROUP BY seat_name
-        ORDER BY 
-            CASE seat_name
-                WHEN '東' THEN 1
-                WHEN '南' THEN 2
-                WHEN '西' THEN 3
-                WHEN '北' THEN 4
-            END
-    """
-    cursor = conn.cursor()
-    cursor.execute(query, (selected_period,))
-
-results = cursor.fetchall()
-conn.close()
-
-if not results:
-    st.warning("選択した期間に該当するデータがありません。")
-    st.stop()
-
-# DataFrameに変換
-df = pd.DataFrame(results, columns=[
-    'seat_name', 'games', 'avg_points', 'avg_rank',
-    'rank_1st', 'rank_2nd', 'rank_3rd', 'rank_4th'
-])
-
-# 1位率などを計算
-df['rate_1st'] = (df['rank_1st'] / df['games'] * 100).round(2)
-df['rate_2nd'] = (df['rank_2nd'] / df['games'] * 100).round(2)
-df['rate_3rd'] = (df['rank_3rd'] / df['games'] * 100).round(2)
-df['rate_4th'] = (df['rank_4th'] / df['games'] * 100).round(2)
-
-# ========== サマリーテーブル ==========
-st.markdown("### 📊 席順別統計サマリー")
-
-# 表示用テーブル
-display_df = df[['seat_name', 'games', 'avg_points', 'avg_rank',
-                 'rank_1st', 'rank_2nd', 'rank_3rd', 'rank_4th',
-                 'rate_1st']].copy()
-
-display_df.columns = ['席', '対局数', '平均pt', '平均順位',
-                      '1位', '2位', '3位', '4位', '1位率(%)']
-
-# フォーマット
-display_df['平均pt'] = display_df['平均pt'].apply(lambda x: f"{x:+.2f}")
-display_df['平均順位'] = display_df['平均順位'].apply(lambda x: f"{x:.3f}")
-display_df['1位率(%)'] = display_df['1位率(%)'].apply(lambda x: f"{x:.2f}")
-
-st.dataframe(
-    display_df,
-    hide_index=True,
-    width='stretch',
-    column_config={
-        '席': st.column_config.TextColumn(width="small"),
-        '対局数': st.column_config.NumberColumn(width="small"),
-        '平均pt': st.column_config.TextColumn(width="small"),
-        '平均順位': st.column_config.TextColumn(width="small"),
-        '1位': st.column_config.NumberColumn(width="small"),
-        '2位': st.column_config.NumberColumn(width="small"),
-        '3位': st.column_config.NumberColumn(width="small"),
-        '4位': st.column_config.NumberColumn(width="small"),
-        '1位率(%)': st.column_config.TextColumn(width="small"),
-    }
-)
-
-# ========== グラフ表示 ==========
-st.markdown("---")
-st.markdown("### 📈 視覚的比較")
-
-tab1, tab2, tab3, tab4 = st.tabs(["平均ポイント", "平均順位", "順位分布", "1位率"])
-
-with tab1:
-    st.markdown("#### 席別 平均ポイント")
-
-    fig1 = go.Figure()
-
-    colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A']
-
-    fig1.add_trace(go.Bar(
-        x=df['seat_name'],
-        y=df['avg_points'],
-        marker_color=colors,
-        text=df['avg_points'].apply(lambda x: f"{x:+.2f}"),
-        textposition='outside',
-        showlegend=False
-    ))
-
-    fig1.update_layout(
-        xaxis_title="席",
-        yaxis_title="平均ポイント",
-        height=400,
-        yaxis=dict(zeroline=True, zerolinecolor="gray", zerolinewidth=2)
-    )
-
-    fit_chart(fig1)
-    st.plotly_chart(fig1, width='stretch')
-
-    # 最高値と最低値の差を表示
-    max_seat = df.loc[df['avg_points'].idxmax()]
-    min_seat = df.loc[df['avg_points'].idxmin()]
-    diff = max_seat['avg_points'] - min_seat['avg_points']
-
-    st.info(f"💡 **{max_seat['seat_name']}家**が最も高く（平均{max_seat['avg_points']:+.2f}pt）、**{min_seat['seat_name']}家**が最も低い（平均{min_seat['avg_points']:+.2f}pt）。差は**{diff:.2f}pt**です。")
-
-with tab2:
-    st.markdown("#### 席別 平均順位")
-
-    fig2 = go.Figure()
-
-    fig2.add_trace(go.Bar(
-        x=df['seat_name'],
-        y=df['avg_rank'],
-        marker_color=colors,
-        text=df['avg_rank'].apply(lambda x: f"{x:.3f}"),
-        textposition='outside',
-        showlegend=False
-    ))
-
-    fig2.update_layout(
-        xaxis_title="席",
-        yaxis_title="平均順位",
-        height=400,
-        yaxis=dict(range=[1, 4])
-    )
-
-    fit_chart(fig2)
-    st.plotly_chart(fig2, width='stretch')
-
-    # 最良と最悪の順位
-    best_seat = df.loc[df['avg_rank'].idxmin()]
-    worst_seat = df.loc[df['avg_rank'].idxmax()]
-    diff_rank = worst_seat['avg_rank'] - best_seat['avg_rank']
-
-    st.info(f"💡 **{best_seat['seat_name']}家**が最も良い平均順位（{best_seat['avg_rank']:.3f}位）、**{worst_seat['seat_name']}家**が最も悪い（{worst_seat['avg_rank']:.3f}位）。差は**{diff_rank:.3f}**です。")
-
-with tab3:
-    st.markdown("#### 席別 順位分布")
-
-    fig3 = go.Figure()
-
-    fig3.add_trace(go.Bar(
-        name='1位',
-        x=df['seat_name'],
-        y=df['rate_1st'],
-        marker_color='#FFD700',
-        text=df['rate_1st'].apply(lambda x: f"{x:.1f}%"),
-        textposition='inside'
-    ))
-
-    fig3.add_trace(go.Bar(
-        name='2位',
-        x=df['seat_name'],
-        y=df['rate_2nd'],
-        marker_color='#C0C0C0',
-        text=df['rate_2nd'].apply(lambda x: f"{x:.1f}%"),
-        textposition='inside'
-    ))
-
-    fig3.add_trace(go.Bar(
-        name='3位',
-        x=df['seat_name'],
-        y=df['rate_3rd'],
-        marker_color='#CD7F32',
-        text=df['rate_3rd'].apply(lambda x: f"{x:.1f}%"),
-        textposition='inside'
-    ))
-
-    fig3.add_trace(go.Bar(
-        name='4位',
-        x=df['seat_name'],
-        y=df['rate_4th'],
-        marker_color='#808080',
-        text=df['rate_4th'].apply(lambda x: f"{x:.1f}%"),
-        textposition='inside'
-    ))
-
-    fig3.update_layout(
-        barmode='stack',
-        xaxis_title="席",
-        yaxis_title="順位分布（%）",
-        height=500,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="center",
-            x=0.5
-        )
-    )
-
-    fit_chart(fig3, horizontal=True)
-    st.plotly_chart(fig3, width='stretch')
-
-    st.info("💡 各席での1位〜4位の出現率を積み上げ棒グラフで表示。理想的には各順位が25%ずつになります。")
-
-with tab4:
-    st.markdown("#### 席別 1位率")
-
-    fig4 = go.Figure()
-
-    # 基準線（25%）
-    fig4.add_trace(go.Scatter(
-        x=['東', '南', '西', '北'],
-        y=[25, 25, 25, 25],
-        mode='lines',
-        name='理論値（25%）',
-        line=dict(color='red', dash='dash', width=2)
-    ))
-
-    fig4.add_trace(go.Bar(
-        x=df['seat_name'],
-        y=df['rate_1st'],
-        marker_color=colors,
-        text=df['rate_1st'].apply(lambda x: f"{x:.2f}%"),
-        textposition='outside',
-        name='実測値',
-        showlegend=True
-    ))
-
-    fig4.update_layout(
-        xaxis_title="席",
-        yaxis_title="1位率（%）",
-        height=400,
-        yaxis=dict(range=[0, max(df['rate_1st'].max() + 2, 30)])
-    )
-
-    fit_chart(fig4)
-    st.plotly_chart(fig4, width='stretch')
-
-    # 25%との差を計算
-    st.markdown("#### 理論値（25%）からの乖離")
-
-    for _, row in df.iterrows():
-        diff_from_25 = row['rate_1st'] - 25
-        if diff_from_25 > 0:
-            st.success(
-                f"**{row['seat_name']}家**: {row['rate_1st']:.2f}% （理論値より**+{diff_from_25:.2f}%**高い）")
-        elif diff_from_25 < 0:
-            st.error(
-                f"**{row['seat_name']}家**: {row['rate_1st']:.2f}% （理論値より**{diff_from_25:.2f}%**低い）")
-        else:
-            st.info(
-                f"**{row['seat_name']}家**: {row['rate_1st']:.2f}% （理論値と一致）")
-
-# ========== 統計的考察 ==========
-st.markdown("---")
-st.subheader("📝 統計的考察")
+# ========== 絞り込み ==========
+seasons = sorted(results.season.unique(), reverse=True)
+stage_names = {"全ステージ": None, "レギュラー": "regular",
+               "セミファイナル": "semifinal", "ファイナル": "final"}
 
 col1, col2 = st.columns(2)
-
 with col1:
-    st.markdown("#### 🎯 主要な知見")
-
-    # 最も有利な席
-    best_points_seat = df.loc[df['avg_points'].idxmax()]
-    best_rank_seat = df.loc[df['avg_rank'].idxmin()]
-    best_rate_seat = df.loc[df['rate_1st'].idxmax()]
-
-    st.markdown(f"""
-    - **平均ポイントが最も高い**: {best_points_seat['seat_name']}家（{best_points_seat['avg_points']:+.2f}pt）
-    - **平均順位が最も良い**: {best_rank_seat['seat_name']}家（{best_rank_seat['avg_rank']:.3f}位）
-    - **1位率が最も高い**: {best_rate_seat['seat_name']}家（{best_rate_seat['rate_1st']:.2f}%）
-    """)
-
-    # データ規模
-    total_games = df['games'].sum()
-    st.markdown(f"""
-    ---
-    **分析データ規模**
-    - 総対局数: {total_games:,}局
-    - 席あたり平均: {total_games // 4:,}局
-    """)
-
+    period = st.selectbox("期間", ["全期間"] + seasons,
+                          format_func=lambda s: s if s == "全期間" else f"{s} シーズン")
 with col2:
-    st.markdown("#### 📊 順位分布の均等性")
+    stage_label = st.selectbox("ステージ", list(stage_names))
 
-    # 各順位の分散を計算
-    for rank_col, rank_name in [('rate_1st', '1位'), ('rate_2nd', '2位'),
-                                ('rate_3rd', '3位'), ('rate_4th', '4位')]:
-        mean_rate = df[rank_col].mean()
-        std_rate = df[rank_col].std()
-        st.markdown(
-            f"**{rank_name}率**: 平均 {mean_rate:.2f}%、標準偏差 {std_rate:.2f}%")
+r = results
+if period != "全期間":
+    r = r[r.season == period]
+if stage_names[stage_label]:
+    r = r[r.stage == stage_names[stage_label]]
 
-    st.markdown("---")
-    st.info("""
-    💡 **解釈のヒント**
-    - 標準偏差が小さいほど、席による差が少ない
-    - 理論値（25%）から大きく外れる席は、構造的な有利/不利がある可能性
-    - ただし、Mリーグ特有の戦略やルールの影響も考慮が必要
-    """)
+if r.empty:
+    st.warning("選択した条件に該当する対局がありません。")
+    st.stop()
+
+game_ids = set(r.game_id)
+n_games = len(game_ids)
+k = kyoku[kyoku.game_id.isin(game_ids)]
+st.caption(f"対象: {n_games:,} 半荘 / {len(k):,} 局")
+
+tab_seat, tab_len, tab_score, tab_turn = st.tabs(
+    ["🧭 席順", "⏱️ 半荘の長さ", "💯 素点と着順", "🔄 逆転"])
+
+
+def pct(x):
+    return f"{x:.1f}%"
+
+
+# ========== 席順 ==========
+with tab_seat:
+    st.subheader("席順による有利・不利")
+    st.markdown(
+        "東 = 起家（東 1 局の親）。席ごとに着順の割合と平均ポイントを比べます。"
+        "どの席も着順が均等なら、各着順は 25% ずつになります。")
+
+    seat = (r.groupby("seat_name")
+            .agg(games=("rank", "size"), avg_points=("points", "mean"),
+                 sd_points=("points", "std"), avg_rank=("rank", "mean"))
+            .reindex(SEATS))
+    counts = (pd.crosstab(r.seat_name, r["rank"])
+              .reindex(index=SEATS, columns=RANKS, fill_value=0))
+    rates = counts.div(seat.games, axis=0) * 100
+    seat["ci"] = 1.96 * seat.sd_points / seat.games.pow(0.5)
+
+    # 席と着順に関係があるか (独立性のカイ二乗検定)。同着があるので
+    # 期待度数は各席の対局数 × 着順ごとの全体の割合で出す。
+    expected = pd.DataFrame(
+        [[g * counts[k_].sum() / counts.values.sum() for k_ in RANKS]
+         for g in seat.games], index=SEATS, columns=RANKS)
+    chi2 = float(((counts - expected) ** 2 / expected).values.sum())
+    if expected.values.min() < 5:
+        # 期待度数が 5 を切るとカイ二乗の近似が効かない
+        st.info(f"対局数が {n_games} 半荘と少ないため、席による偏りの有無は判断できません。")
+    elif chi2 >= CHI2_CRIT_DF9:
+        st.warning(
+            f"**席と着順には関係がありそうです**（カイ二乗値 {chi2:.1f}。"
+            f"偶然でもこれ以上になる確率は 5% 未満の目安 {CHI2_CRIT_DF9} を超えています）。")
+    else:
+        st.success(
+            f"**席による着順の偏りは、偶然の範囲に収まっています**（カイ二乗値 {chi2:.1f}。"
+            f"偶然でもこの程度は起きる目安 {CHI2_CRIT_DF9} 未満）。")
+
+    left, right = st.columns(2)
+    with left:
+        fig = go.Figure(go.Scatter(
+            x=SEATS, y=seat.avg_points,
+            error_y=dict(type="data", array=seat.ci, thickness=2, width=8,
+                         color=BLUE),
+            mode="markers", marker=dict(size=12, color=BLUE),
+            customdata=seat[["ci", "games"]].values,
+            hovertemplate="%{x}家<br>平均 %{y:+.2f}pt"
+                          "<br>95%区間 ±%{customdata[0]:.2f}pt"
+                          "<br>%{customdata[1]:,}半荘<extra></extra>",
+        ))
+        fig.add_hline(y=0, line=dict(color="#9a9a96", width=1, dash="dot"))
+        fig.update_layout(
+            title="席ごとの平均ポイント（縦線は 95% 区間）",
+            yaxis_title="pt", height=380, showlegend=False)
+        fit_chart(fig)
+        st.plotly_chart(fig, width="stretch")
+        st.caption("縦線が 0 をまたいでいれば、その席の有利・不利ははっきりしません。")
+
+    with right:
+        diff = rates - 25
+        lim = max(3.0, float(diff.abs().values.max()))
+        fig = go.Figure(go.Heatmap(
+            z=diff.values, x=[f"{k_}位" for k_ in RANKS], y=SEATS,
+            zmin=-lim, zmax=lim, colorscale=DIVERGING,
+            text=rates.map(pct).values, texttemplate="%{text}",
+            textfont=dict(size=14, color="#1a1a19"),
+            customdata=counts.values,
+            hovertemplate="%{y}家 %{x}<br>%{text}（%{customdata:,}回）"
+                          "<br>25% との差 %{z:+.1f}pt<extra></extra>",
+            colorbar=dict(title="25%との差", ticksuffix="pt", len=0.8),
+        ))
+        fig.update_layout(title="席 × 着順の割合", height=380,
+                          yaxis=dict(autorange="reversed"))
+        fit_chart(fig)
+        st.plotly_chart(fig, width="stretch")
+        st.caption("青は 25% より多く、赤は少ない。色が薄いほど 25% に近い。")
+
+    table = pd.DataFrame({
+        "席": SEATS,
+        "半荘": seat.games.astype(int).values,
+        "平均pt": [f"{v:+.2f}" for v in seat.avg_points],
+        "95%区間": [f"±{v:.2f}" for v in seat.ci],
+        "平均順位": [f"{v:.3f}" for v in seat.avg_rank],
+        **{f"{k_}位率": [pct(v) for v in rates[k_]] for k_ in RANKS},
+    })
+    st.dataframe(table, hide_index=True, width="stretch")
+
+# ========== 半荘の長さ ==========
+with tab_len:
+    st.subheader("1 半荘の局数")
+    st.markdown(
+        "本場（連荘・流局）も 1 局と数えます。M リーグは飛び終了がなく、"
+        "東 1 局〜南 4 局の 8 局が最短です。")
+
+    per_game = k.groupby("game_id").size()
+    c1, c2, c3, c4 = metric_row(4)
+    c1.metric("平均", f"{per_game.mean():.2f} 局")
+    c2.metric("中央値", f"{per_game.median():.0f} 局")
+    c3.metric("最短（8 局）で終わった", pct((per_game == 8).mean() * 100))
+    c4.metric("最長", f"{per_game.max()} 局")
+
+    dist = per_game.value_counts().sort_index()
+    fig = go.Figure(go.Bar(
+        x=dist.index, y=dist.values / len(per_game) * 100,
+        marker=dict(color=BLUE, cornerradius=4),
+        customdata=dist.values,
+        hovertemplate="%{x} 局<br>%{y:.1f}%（%{customdata:,} 半荘）<extra></extra>",
+    ))
+    fig.update_layout(title="局数の分布", xaxis_title="局数",
+                      yaxis_title="半荘の割合（%）", height=360, bargap=0.15,
+                      xaxis=dict(dtick=1))
+    fit_chart(fig)
+    st.plotly_chart(fig, width="stretch")
+
+    if period == "全期間":
+        season_of = r.drop_duplicates("game_id").set_index("game_id").season
+        trend = per_game.groupby(season_of.reindex(per_game.index)).mean()
+        fig = go.Figure(go.Scatter(
+            x=[season_label(s) for s in trend.index], y=trend.values, mode="lines+markers",
+            line=dict(color=BLUE, width=2), marker=dict(size=8),
+            hovertemplate="%{x}<br>平均 %{y:.2f} 局<extra></extra>",
+        ))
+        fig.update_layout(title="シーズンごとの平均局数（局）", xaxis=dict(type="category"),
+                          height=320, showlegend=False)
+        fit_chart(fig)
+        st.plotly_chart(fig, width="stretch")
+
+    # 親の連荘の長さ。同じ round が続いた回数の最大を局ごとに取る。
+    renchan = k.groupby(["game_id", "round"]).honba_count.max()
+    st.caption(
+        f"1 つの局で積まれた本場の最大は {int(renchan.max())} 本場、"
+        f"5 本場以上まで続いたのは {int((renchan >= 5).sum()):,} 回です。")
+
+# ========== 素点と着順 ==========
+with tab_score:
+    st.subheader("着順ごとの素点")
+    st.markdown("持ち点 25,000 点スタート。素点は半荘終了時の持ち点です。")
+
+    by_rank = r.groupby("rank").score
+    top_scores = r[r["rank"] == 1].groupby("game_id").score.max()
+    minus_games = r[r.score < 0].game_id.nunique()
+
+    c1, c2, c3 = metric_row(3)
+    c1.metric("トップの平均素点", f"{top_scores.mean():,.0f} 点")
+    c2.metric("トップが 50,000 点以上", pct((top_scores >= 50000).mean() * 100))
+    c3.metric("箱下（マイナス）が出た半荘", pct(minus_games / n_games * 100))
+
+    fig = go.Figure()
+    for k_ in RANKS:
+        fig.add_trace(go.Box(
+            y=r[r["rank"] == k_].score, name=f"{k_}位",
+            marker=dict(color=BLUE, size=4), line=dict(color=BLUE, width=2),
+            fillcolor="rgba(42,120,214,0.15)", boxpoints="outliers",
+            hovertemplate="%{y:,} 点<extra></extra>",
+        ))
+    fig.add_hline(y=25000, line=dict(color="#9a9a96", width=1, dash="dot"),
+                  annotation_text="25,000", annotation_position="top left")
+    fig.update_layout(title="着順ごとの素点の分布（点）",
+                      height=420, showlegend=False)
+    fit_chart(fig)
+    st.plotly_chart(fig, width="stretch")
+    st.caption("箱が中央の半分、箱の中の線が中央値、点は外れ値です。")
+
+    st.dataframe(pd.DataFrame({
+        "着順": [f"{k_}位" for k_ in RANKS],
+        "平均": [f"{by_rank.mean()[k_]:,.0f}" for k_ in RANKS],
+        "中央値": [f"{by_rank.median()[k_]:,.0f}" for k_ in RANKS],
+        "最低": [f"{by_rank.min()[k_]:,.0f}" for k_ in RANKS],
+        "最高": [f"{by_rank.max()[k_]:,.0f}" for k_ in RANKS],
+    }), hide_index=True, width="stretch")
+
+    if period == "全期間":
+        season_of = r.drop_duplicates("game_id").set_index("game_id").season
+        trend = top_scores.groupby(season_of.reindex(top_scores.index)).mean()
+        fig = go.Figure(go.Scatter(
+            x=[season_label(s) for s in trend.index], y=trend.values, mode="lines+markers",
+            line=dict(color=BLUE, width=2), marker=dict(size=8),
+            hovertemplate="%{x}<br>平均 %{y:,.0f} 点<extra></extra>",
+        ))
+        fig.update_layout(title="シーズンごとのトップの平均素点（点）", xaxis=dict(type="category"),
+                          height=320, showlegend=False)
+        fit_chart(fig)
+        st.plotly_chart(fig, width="stretch")
+
+# ========== 逆転 ==========
+with tab_turn:
+    st.subheader("途中の順位から、最終順位はどれだけ変わるか")
+
+    point = st.radio(
+        "時点", ["南入時点（東 4 局の終了時）", "オーラス開始時点"], horizontal=True)
+
+    kk = k.sort_values("kyoku_id")
+    if point.startswith("南入"):
+        # 東場の最後の局 (東 4 局の本場を含む) の終了時
+        at = kk[kk["round"].str.startswith("1z")].groupby("game_id").kyoku_id.max()
+    else:
+        # 南 4 局 (オーラス) の最初の局の、ひとつ前の局の終了時
+        kk = kk.assign(prev=kk.groupby("game_id").kyoku_id.shift(1))
+        at = kk[kk["round"] == "2z4"].groupby("game_id").prev.min().dropna()
+
+    mid = kyoku_rank[kyoku_rank.kyoku_id.isin(set(at.astype(int)))]
+    mid = mid.merge(kyoku[["kyoku_id", "game_id"]], on="kyoku_id")
+    pair = mid.merge(r[["game_id", "player_id", "rank"]],
+                     on=["game_id", "player_id"], suffixes=("_mid", "_final"))
+    trans = (pd.crosstab(pair.rank_mid, pair.rank_final)
+             .reindex(index=RANKS, columns=RANKS, fill_value=0))
+    trans_pct = trans.div(trans.sum(axis=1), axis=0) * 100
+
+    c1, c2, c3 = metric_row(3)
+    c1.metric("トップがそのままトップ", pct(trans_pct.loc[1, 1]))
+    c2.metric("ラスがそのままラス", pct(trans_pct.loc[4, 4]))
+    c3.metric("ラスからトップへ", pct(trans_pct.loc[4, 1]))
+
+    fig = go.Figure(go.Heatmap(
+        z=trans_pct.values, x=[f"最終 {k_}位" for k_ in RANKS],
+        y=[f"{k_}位" for k_ in RANKS], zmin=0, zmax=100,
+        colorscale=SEQUENTIAL,
+        text=trans_pct.map(pct).values, texttemplate="%{text}",
+        textfont=dict(size=14, color="#1a1a19"),
+        customdata=trans.values,
+        hovertemplate="その時点 %{y} → %{x}<br>%{text}（%{customdata:,}回）"
+                      "<extra></extra>",
+        colorbar=dict(title="割合", ticksuffix="%", len=0.8),
+    ))
+    fig.update_layout(title=f"{point.split('（')[0]}の順位 → 最終順位",
+                      yaxis=dict(title="その時点の順位", autorange="reversed"),
+                      height=420)
+    fit_chart(fig)
+    st.plotly_chart(fig, width="stretch")
+    st.caption(
+        "行ごとに合計 100%。対角線（左上→右下）が順位を守った割合です。"
+        "同点は同順位として数えます。")
 
 st.markdown("---")
-st.caption("※ データは半荘記録から集計されています。")
+st.caption("※ 半荘記録と、局ごとの精算後の持ち点・順位（konoui DB）から集計しています。")
