@@ -296,13 +296,18 @@ def traits_table(per_season, vocab):
 # 称号
 # ---------------------------------------------------------------------
 
-def season_stats(con):
+def season_stats(con, stages=None):
     """選手×シーズンの実測値。進行中のシーズンも含め、出場数の足切りもしない。
 
     キャラクターシートは build() で終わったシーズンだけを使う。こちらは
     称号ランキングのページが、今シーズンの暫定順位を出すために使う。
+    stages を渡すと、そのステージ ("regular" / "semifinal" / "final") の
+    成績だけを合算する。
     """
-    return derive(combine(load_stage_rows(con), ["season", "player_id"]))
+    rows = load_stage_rows(con)
+    if stages:
+        rows = rows[rows.stage.isin(stages)]
+    return derive(combine(rows, ["season", "player_id"]))
 
 
 def award_ranking(per_season, col, ascending):

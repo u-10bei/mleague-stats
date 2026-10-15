@@ -14,13 +14,24 @@ show_sidebar_navigation()
 
 PLACE_MARK = {1: "🥇", 2: "🥈", 3: "🥉"}
 
+# 集計範囲 -> (合算するステージ, 規定出場数の既定値)。
+# ポストシーズンは 1 人あたりの出場が少ない (2019〜2025 の中央値 6〜8 戦、
+# 最多でも 14 戦) ので、通年と同じ 10 戦では率の賞がほぼ空になる。
+SCOPES = {
+    "通年（全ステージ）": (None, ch.MIN_SEASON_GAMES),
+    "レギュラーシーズン": (("regular",), ch.MIN_SEASON_GAMES),
+    "ポストシーズン（セミファイナル・ファイナル）": (("semifinal", "final"), 5),
+}
+
 
 @st.cache_data(show_spinner="集計中...")
-def load():
+def load(stages):
     """選手×シーズンの実測値と、表示に使う名簿をまとめて返す。"""
     con = get_connection(readonly_local=True)
     try:
-        stats = ch.season_stats(con)
+        stats = ch.season_stats(con, stages)
+        # 進行中のシーズンは、ステージで絞る前の全体の最新シーズンで決める
+        current = int(con.execute("SELECT MAX(season) FROM game_results").fetchone()[0])
         players = pd.read_sql_query(
             "SELECT player_id, player_name FROM players", con)
         # チーム名はシーズンで変わるので、年度別の名前を持つ team_names から引く
@@ -31,20 +42,25 @@ def load():
             "   ON tn.team_id = pt.team_id AND tn.season = pt.season", con)
     finally:
         con.close()
-    return stats, players, teams
+    return stats, players, teams, current
 
-
-stats, players, teams = load()
-name_of = players.set_index("player_id").player_name.to_dict()
-
-seasons = sorted(stats.season.unique(), reverse=True)
-# キャラクターシートと同じく、データ上の最新シーズンを進行中とみなす
-current = seasons[0]
 
 st.title("🏅 称号ランキング")
 st.caption(
     "キャラクターシートの称号（シーズン個人賞 8 種）を、全選手の順位で並べます。"
-    "全ステージを合算した通年成績で判定し、同じ記録なら同順位です。")
+    "同じ記録なら同順位です。")
+
+scope = st.radio("集計範囲", list(SCOPES), horizontal=True)
+stages, default_min = SCOPES[scope]
+stats, players, teams, current = load(stages)
+name_of = players.set_index("player_id").player_name.to_dict()
+
+# キャラクターシートと同じく、データ上の最新シーズンを進行中とみなす。
+# ポストシーズンが始まる前のシーズンは、ポストシーズンの選択肢に出ない。
+seasons = sorted(stats.season.unique(), reverse=True)
+if not seasons:
+    st.info("まだ対局がありません。")
+    st.stop()
 
 col1, col2 = st.columns([1, 1])
 with col1:
@@ -52,9 +68,10 @@ with col1:
         "シーズン", seasons,
         format_func=lambda s: f"{s}（暫定）" if s == current else str(s))
 with col2:
+    # 範囲ごとに key を分け、範囲を切り替えたら既定値に戻す
     min_games = st.number_input(
         "規定出場数（率の賞のみ）", min_value=1, max_value=100,
-        value=ch.MIN_SEASON_GAMES, step=1,
+        value=default_min, step=1, key=f"min_games_{scope}",
         help="トップ率・ラス回避率・和了率・放銃率の低さ・平均和了巡目は、"
              "この出場数に届いた選手だけで順位を付けます。"
              f"キャラクターシートの称号は {ch.MIN_SEASON_GAMES} 戦で判定しています。")
@@ -63,6 +80,10 @@ if season == current:
     st.info(
         f"📅 {season} シーズンは進行中のため**暫定順位**です。"
         "キャラクターシートの称号には、シーズンが終わってから反映されます。")
+if stages:
+    st.caption(
+        f"{scope}の成績だけで順位を付けています。"
+        "キャラクターシートの称号は、全ステージを合算した通年成績で判定しています。")
 
 per = stats[stats.season == season]
 team_of = (teams[teams.season == season]
@@ -81,7 +102,7 @@ rankings = {label: (ranking(col, asc), col, fmt)
 
 # ========== 各賞の上位 3 名 ==========
 st.markdown("---")
-st.subheader(f"🏆 各賞の上位 3 名｜{season}")
+st.subheader(f"🏆 各賞の上位 3 名｜{season}・{scope.split('（')[0]}")
 
 cols = st.columns(4)
 for i, (label, (r, col, fmt)) in enumerate(rankings.items()):
@@ -159,5 +180,8 @@ with st.expander("ℹ️ 各賞の決め方"):
         "率の賞（トップ率・ラス回避率・和了率・放銃率の低さ・平均和了巡目）は、"
         "規定出場数に届いた選手だけで順位を付けます。"
         "出場の少ない選手の率は 0% や 100% に振れやすいためです。"
-        "キャラクターシートの称号は、終わったシーズンについて規定出場数 "
+        f"既定は通年・レギュラーシーズンが {ch.MIN_SEASON_GAMES} 戦、"
+        f"ポストシーズンが {SCOPES['ポストシーズン（セミファイナル・ファイナル）'][1]} 戦です"
+        "（ポストシーズンは 1 人あたりの出場が少ないため）。"
+        "キャラクターシートの称号は、終わったシーズンの通年成績について規定出場数 "
         f"{ch.MIN_SEASON_GAMES} 戦の 3 位までです。")

@@ -36,11 +36,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-
       - name: 最新リリースを確認
         id: release
         env:
@@ -56,6 +51,16 @@ jobs:
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # Python の準備はリリースが新しいときだけ行う。
+      # 取り込み済みで終わる日に setup-python を走らせると、pip install を
+      # していないので pip のキャッシュ置き場ができず、後片付けの段階で
+      # 「キャッシュのフォルダが無い」というエラーになってジョブが失敗する。
+      - uses: actions/setup-python@v5
+        if: steps.release.outputs.skip == 'false'
+        with:
+          python-version: '3.11'
+          cache: pip
 
       - name: 配布DB を取得
         if: steps.release.outputs.skip == 'false'
