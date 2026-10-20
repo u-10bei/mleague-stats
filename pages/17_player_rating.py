@@ -2,7 +2,8 @@ import sys
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from db import get_connection, get_player_ratings, get_player_rating_history, show_sidebar_navigation
+from db import (FORM_GAMES, RATING_K, get_connection, get_player_form, get_player_rating_history,
+                get_player_ratings, show_sidebar_navigation)
 from ui import fit_chart, metric_row
 
 sys.path.append("..")
@@ -18,17 +19,30 @@ show_sidebar_navigation()
 
 st.title("📊 選手レーティング")
 
-st.markdown("""
+st.markdown(f"""
 4人麻雀用のElo風レーティングシステムです。
 対局結果に基づいて、選手の相対的な実力をレーティングで可視化します。
+**レート**は通算の積み重ねを映す実力の目安、**調子**は直近 {FORM_GAMES} 戦の上振れ・下振れです。
 
 **システム仕様**
 - 初期レート: 1500pt
-- K値: 8
+- K値: {RATING_K}
 - 着順スコア: 1位 +4.5、2位 +0.5、3位 -1.5、4位 -3.5（合計 0）
 - 期待値: Plackett-Luce（Elo の多人数拡張）で着順の確率分布を求め、
   着順スコアの期待値を取る。ΔR = K ×（実際の着順スコア − 期待値）
+- 調子: 直近 {FORM_GAMES} 戦の（実際の着順スコア − 期待値）の平均。対戦相手の強さを加味した上振れ・下振れ
 """)
+
+
+def form_label(v):
+    """調子の値に、向きがひと目でわかる記号を添える。"""
+    if pd.isna(v):
+        return "—"
+    mark = "↑" if v >= 0.5 else "↓" if v <= -0.5 else "→"
+    return f"{mark} {v:+.2f}"
+
+
+form_df = get_player_form()
 
 # タブ構成
 tab1, tab2, tab3 = st.tabs(["📈 レーティングランキング", "📊 個別詳細", "ℹ️ 説明"])
@@ -42,18 +56,20 @@ with tab1:
     if not rating_df.empty:
         # ランキング表示用に順位を追加
         rating_df.insert(0, '順位', range(1, len(rating_df) + 1))
+        rating_df = rating_df.merge(form_df, on='player_id', how='left')
         
         # 表示用に整形
         display_df = rating_df[[
-            '順位', 'player_name', 'rating', 'games', 'last_updated'
+            '順位', 'player_name', 'rating', 'form', 'games', 'last_updated'
         ]].copy()
         
         display_df.columns = [
-            '順位', '選手名', 'レート', '対局数', '最終対局日'
+            '順位', '選手名', 'レート', f'調子（直近{FORM_GAMES}戦）', '対局数', '最終対局日'
         ]
         
         # フォーマット
         display_df['レート'] = display_df['レート'].apply(lambda x: f"{x:.1f}")
+        display_df[f'調子（直近{FORM_GAMES}戦）'] = display_df[f'調子（直近{FORM_GAMES}戦）'].apply(form_label)
         display_df['対局数'] = display_df['対局数'].astype(int)
         
         # 指標表示
@@ -68,6 +84,9 @@ with tab1:
             st.metric("📈 総対局数", int(rating_df['games'].sum()))
         
         st.dataframe(display_df, hide_index=True)
+        st.caption(
+            f"調子は直近 {FORM_GAMES} 戦で、レートから期待される着順スコアをどれだけ上回ったか（1 戦あたり）。"
+            "↑ は +0.5 以上、↓ は −0.5 以下。最近の結果を表すもので、次の対局の予想には使えません。")
         
         # グラフ表示
         st.markdown("---")
@@ -153,6 +172,9 @@ with tab2:
         
         # 選択した選手の情報
         player_info = rating_df[rating_df['player_id'] == selected_player_id].iloc[0]
+        form_row = form_df[form_df['player_id'] == selected_player_id]
+        form_value = form_row['form'].iloc[0] if len(form_row) else float('nan')
+        form_games = int(form_row['form_games'].iloc[0]) if len(form_row) else 0
         
         col1, col2, col3, col4 = metric_row(4)
         with col1:
@@ -160,9 +182,11 @@ with tab2:
         with col2:
             st.metric("現在のレート", f"{player_info['rating']:.1f}pt")
         with col3:
-            st.metric("対局数", int(player_info['games']))
+            st.metric(f"調子（直近{form_games}戦）", form_label(form_value),
+                      help="レートから期待される着順スコアを、1 戦あたりどれだけ上回ったか。"
+                           "最近の結果を表すもので、次の対局の予想には使えません。")
         with col4:
-            st.metric("最終対局日", player_info["last_updated"])
+            st.metric("対局数", int(player_info['games']))
         
         st.markdown("---")
         
@@ -263,7 +287,7 @@ with tab3:
     ```
     
     ここで：
-    - K = 8（緩やかなレート変動で収束を重視）
+    - K = 2（1 戦ごとの運に振られにくく、通算の積み重ねが効く大きさ）
     - 着順スコア：1位 +4.5、2位 +0.5、3位 -1.5、4位 -3.5（合計 0）
     - 同着は該当する着順のスコアを平均する（1224 方式）
     - 4 人の ΔR の合計は常に 0（ゼロサム）
@@ -273,9 +297,28 @@ with tab3:
     | 項目 | 値 |
     |------|-----|
     | 初期レート | 1500pt |
-    | K値 | 8 |
+    | K値 | 2 |
     | レート上限 | なし |
     | レート下限 | なし |
+    | 調子を測る対局数 | 直近 30 戦 |
+
+    ### K を 2 にしている理由
+
+    2020 年以降の全対局で、対局前のレートから着順を予測させ、K の大きさを比べました。
+
+    - **K=1〜2 がいちばんよく当たりました。** K=8 では「全員同じ強さ」とみなすより外れました。
+      M リーグは選手間の実力差が運に比べて小さく、K が大きいと直近の運を実力として拾ってしまいます
+    - 100 戦以上の選手で比べると、K=8 のレートは直近 30 戦の成績と強く連動していました（相関 0.74、
+      通算の成績とは 0.50）。K=2 では通算の成績との相関が 0.72、直近 30 戦とは 0.51 で、
+      通算を中心に調子も少し映る形になります
+
+    ### 調子について
+
+    直近 30 戦の「実際の着順スコア − 期待値」の平均です。対戦相手の強さを加味した上振れ・下振れで、
+    +1.0 なら 1 戦あたり着順スコア 1 点ぶん、レートからの期待を上回っています。
+
+    調子をレートに足すと、どの重みでも着順の予測は悪くなりました。直近の勢いには次の対局を当てる力が
+    見つからなかったので、レートには混ぜず、**最近の結果**として別に表示しています。
     
     ### レーティング更新のタイミング
     
@@ -287,5 +330,5 @@ with tab3:
     
     - **選手の実力比較**: 対戦相手の強さを加味した相対的な実力を数値化
     - **成長の追跡**: 時間経過による成長・衰退を可視化
-    - **期待値との比較**: 実績との乖離から、レート以上・以下の結果を出した対局を把握
+    - **期待値との比較**: 調子と対局ごとのレート変動から、レート以上・以下の結果が続いているかを把握
     """)

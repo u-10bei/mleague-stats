@@ -585,7 +585,17 @@ def get_player_all_stats():
 # 実際の着順スコアの合計も 0 なので ΔR はゼロサムになる。
 # 引数の並び順には依存しない。
 # 全員同レートなら期待値が 0 になり ΔR = K × 着順スコア。
-RATING_K = 8
+#
+# K は 2。2020 年以降の全対局で、対局前のレートから着順を予測させて
+# K を比べたところ、K=1〜2 がいちばん当たった (K=8 は「全員同じ強さ」と
+# みなすより外れた)。M リーグは選手間の実力差が運に比べて小さく、K が
+# 大きいと直近の運をそのまま実力として拾ってしまう。100 戦以上の選手で
+# 見ると、K=8 のレートは直近 30 戦の成績との相関が 0.74、通算の成績との
+# 相関が 0.50 だった。K=2 ではそれぞれ 0.51 と 0.72 になる。
+#
+# 直近の調子 (期待値をどれだけ上回ったか) をレートに足すと、どの重みでも
+# 予測は悪くなった。調子はレートに混ぜず、get_player_form() で別に出す。
+RATING_K = 2
 INITIAL_RATING = 1500.0
 
 # 着順スコア。同着は該当する着順のスコアを平均する（1224 方式）。
@@ -812,6 +822,39 @@ def get_player_ratings():
         JOIN players p ON pr.player_id = p.player_id
         ORDER BY pr.rating DESC
     """, conn)
+    conn.close()
+    return df
+
+
+# 調子を測る対局数
+FORM_GAMES = 30
+
+
+def get_player_form(n=FORM_GAMES):
+    """選手ごとの直近 n 戦の調子 (実際の着順スコア − 期待値 の平均)。
+
+    rating_history の delta は K × (実際の着順スコア − 期待値) なので、
+    K で割れば 1 対局ぶんの「期待値からのずれ」に戻る。対戦相手の強さを
+    加味した上振れ・下振れで、+1.0 なら 1 戦あたり着順スコア 1 点ぶん
+    期待を上回っている。
+    次の対局の予測には効かない (RATING_K の説明を参照) ので、
+    「最近の結果」として扱う。
+
+    返り値: player_id, form, form_games (直近 n 戦に満たない選手は実際の数)
+    """
+    conn = get_connection()
+    df = pd.read_sql_query("""
+        SELECT player_id, AVG(delta) / ? AS form, COUNT(*) AS form_games
+        FROM (
+            SELECT player_id, delta,
+                   ROW_NUMBER() OVER (PARTITION BY player_id
+                                      ORDER BY game_date DESC, game_number DESC,
+                                               id DESC) AS rn
+            FROM ratings.rating_history
+        )
+        WHERE rn <= ?
+        GROUP BY player_id
+    """, conn, params=(RATING_K, n))
     conn.close()
     return df
 
